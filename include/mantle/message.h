@@ -8,11 +8,11 @@
 #include "mantle/operation.h"
 
 #define MANTLE_MESSAGE_TYPES(X) \
-    X(START)                             \
-    X(ENTER)                             \
-    X(SUBMIT)                            \
-    X(RETIRE)                            \
-    X(LEAVE)                             \
+    X(START)                    \
+    X(ENTER)                    \
+    X(SUBMIT)                   \
+    X(RETIRE)                   \
+    X(LEAVE)                    \
 
 namespace mantle {
 
