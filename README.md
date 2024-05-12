@@ -83,6 +83,8 @@ To handle the synchronization of reference count updates safely across threads, 
  * `T>3`: Any remaining decrements from other threads that were not applied in `T=3` due to race conditions are now applied.
 
 ## TODO
- * Check the model in `TLA+`.
- * Benchmarks.
+ * Check the model in `TLA+`. This is definitely the most important pending task, since everything else is pointless if the algorithm isn't sound.
+ * Benchmarks versus `std::shared_ptr<T>`. I'm interested in what the latency, throughput, and contention differences look like.
+ * Profiling and optimization. So far I've been mostly concerned with getting all of this working.
  * Add examples.
+ * `Region::step` should incrementally finalize objects. I'd prefer better tails and marginally worse averages (latency, cache impact). Also, we have no idea how long finalization takes. Maybe break out after some number of microseconds to stay responsive?

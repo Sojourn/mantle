@@ -1149,7 +1149,9 @@ int main() {
 </ul>
 <h2 id="todo">TODO<a class="headerlink" href="#todo" title="Permanent link"></a></h2>
 <ul>
-<li>Check the model in <code>TLA+</code>.</li>
-<li>Benchmarks.</li>
+<li>Check the model in <code>TLA+</code>. This is definitely the most important pending task, since everything else is pointless if the algorithm isn&rsquo;t sound.</li>
+<li>Benchmarks versus <code>std::shared_ptr&lt;T&gt;</code>. I&rsquo;m interested in what the latency, throughput, and contention differences look like.</li>
+<li>Profiling and optimization. So far I&rsquo;ve been mostly concerned with getting all of this working.</li>
 <li>Add examples.</li>
+<li><code>Region::step</code> should incrementally finalize objects. I&rsquo;d prefer better tails and marginally worse averages (latency, cache impact). Also, we have no idea how long finalization takes. Maybe break out after some number of microseconds to stay responsive?</li>
 </ul></article></body></html>
