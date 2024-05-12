@@ -13,9 +13,6 @@ namespace mantle {
 
     // A std::span<OperationBatch> is effectively a 2-d array of operations.
     // This class maps that onto a 1-d array which is more convenient for sorting.
-    //
-    // TODO: Think about renaming this to `OperationSlice`.
-    //
     class OperationSlice {
     public:
         OperationSlice();
@@ -50,14 +47,14 @@ namespace mantle {
     };
 
     // This class incrementally sorts a collection of operations to put them in order approximately by address.
-    // The intention is to reduce TLB faults and improve cache utilization while the `Region` applies the operations.
+    // The intention is to reduce TLB faults and improve cache utilization when the `Region` applies the operations.
     //
     // We can terminate early, before the array(s) have been totally sorted. Some possible heuristics:
     //   - Time elapsed.
-    //   - The first/last operation on a given partition live on the same page as a quick check for how sorted things are.
+    //   - The first/last operation in a given partition live on the same page as a quick check for how sorted things are.
     //      - This makes assumptions about the address distribution.
     //   - Size of the partition. We use quick-sort internally so we shouldn't let this get too small.
-    //      - Could switch the sorting algorithm for smaller partitions.
+    //      - Could switch to insertion sort when things get small.
     //
     class OperationShuffler {
     public:
