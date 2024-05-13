@@ -52,17 +52,14 @@ namespace mantle {
         return last_ - first_;
     }
 
-    size_t OperationSlice::first() const {
-        return first_;
-    }
-
-    size_t OperationSlice::last() const {
-        return last_;
-    }
-
     Operation& OperationSlice::operator[](size_t index) {
-        size_t unsigned_index = static_cast<size_t>(first_ + index);
-        return array_[unsigned_index / OperationBatch::SIZE].operations[unsigned_index % OperationBatch::SIZE];
+        size_t external_index = first_ + index;
+        assert(external_index < last_);
+
+        size_t array_offset = external_index / OperationBatch::SIZE;
+        size_t batch_offset = external_index % OperationBatch::SIZE;
+
+        return array_[array_offset].operations[batch_offset];
     }
 
     Operation& OperationSlice::front() {
@@ -74,11 +71,14 @@ namespace mantle {
     }
 
     std::pair<OperationSlice, OperationSlice> OperationSlice::split(size_t index) {
-        assert(index < size());
+        assert(!is_empty()); // Splitting an empty range doesn't make sense.
+
+        size_t external_index = index + first_;
+        assert(external_index < last_);
 
         return {
-            OperationSlice(array_, first_, first_ + index),
-            OperationSlice(array_, first_ + index + 1, last_),
+            OperationSlice(array_, first_, external_index),
+            OperationSlice(array_, external_index + 1, last_),
         };
     }
 

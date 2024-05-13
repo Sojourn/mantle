@@ -12,7 +12,7 @@
 namespace mantle {
 
     // A std::span<OperationBatch> is effectively a 2-d array of operations.
-    // This class maps that onto a 1-d array which is more convenient for sorting.
+    // This class projects that onto a 1-d array which is more convenient for sorting.
     class OperationSlice {
     public:
         OperationSlice();
@@ -22,13 +22,11 @@ namespace mantle {
         bool is_empty() const;
         size_t size() const;
 
-        size_t first() const;
-        size_t last() const;
-
         Operation& operator[](size_t index);
         Operation& front();
         Operation& back();
 
+        // Split a non-empty slice into two.
         std::pair<OperationSlice, OperationSlice> split(size_t index);
 
     private:
