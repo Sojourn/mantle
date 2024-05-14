@@ -9,6 +9,11 @@ The core algorithm hasn't been checked in `TLA+`, yet.
 #include <new>
 #include <mantle/mantle.h>
 
+class Resource : public mantle::Object {
+public:
+    virtual ~Resource() = default;
+};
+
 int main() {
     mantle::Domain domain;
 
@@ -17,21 +22,26 @@ int main() {
         // In practice this should be forwarding the call to an appropriate
         // thread-local allocator.
         struct : mantle::ObjectFinalizer {
-            void finalize(mantle::Object& object) override final noexcept {
-                delete &object;
+            void finalize(mantle::Object& object) noexcept override final {
+                delete static_cast<Resource*>(&object);
             }
         } finalizer;
 
         // Register this thread with the domain so that handles may be used.
         mantle::Region region(domain, finalizer);
 
+        // A region can be added to an event loop like this. The file descriptor
+        // will be readable while the region has work to do.
         // event_loop.add_reader(region.file_descriptor(), [&]() {
         //     region.step();
         // });
 
         {
             // Bind an object to a handle. Note that the library is not doing the allocation.
-            mantle::Handle<Object> h1 = make_handle(*(new Object));
+            mantle::Handle<Resource> h1 = make_handle(*(new Resource));
+
+            // Cheaply clone a handle by splitting the weight of the original.
+            mantle::Handle<Resource> h2 = h1;
         }
 
         // This will block until all other threads are also ready to stop, and all
@@ -41,7 +51,6 @@ int main() {
 
     }).join();
 }
-
 ```
 
 ## Design Goals
