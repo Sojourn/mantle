@@ -17,8 +17,8 @@ namespace mantle {
     struct Config {
         std::optional<std::span<size_t>> domain_cpu_affinity;
 
-        // The maximum number of unapplied operations per-region.
-        size_t ledger_capacity = 64 * 1024;
+        // The maximum number of pending operations per-region.
+        size_t ledger_capacity = 1024 * 1024;
 
         // This enables the deflator which tries to group operations on the same object
         // and net their effects to reduce the number of operations that need to be retired/applied.
