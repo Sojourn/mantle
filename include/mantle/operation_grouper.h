@@ -32,10 +32,8 @@ namespace mantle {
 
         struct OperationGroup {
             int64_t delta = 0;
-
-            // TODO: Additional heuristic inputs.
-            // size_t  count = 0;
-            // bool    dirty = false;
+            size_t  hit_count = 0;
+            size_t  hit_decay = 0;
         };
 
         using Cache       = ObjectCache<OperationGroup, CACHE_SIZE, CACHE_WAYS>;

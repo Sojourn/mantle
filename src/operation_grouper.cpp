@@ -1,4 +1,5 @@
 #include "mantle/operation_grouper.h"
+#include <cassert>
 
 namespace mantle {
 
@@ -53,6 +54,7 @@ namespace mantle {
             if (entry.key == object) {
                 // Update an existing group.
                 entry.val.delta += operation.value();
+                entry.val.hit_count += 1;
                 if (entry.val.delta) {
                     cache_.store(cursor, entry);
                 }
@@ -69,7 +71,9 @@ namespace mantle {
                 cache_.store(cursor, CacheEntry {
                     .key = object,
                     .val = {
-                        .delta = operation.value(),
+                        .delta     = operation.value(),
+                        .hit_count = 0,
+                        .hit_decay = 1,
                     },
                 });
 
@@ -80,7 +84,9 @@ namespace mantle {
                 cache_.store(cursor, CacheEntry {
                     .key = object,
                     .val = {
-                        .delta = operation.value(),
+                        .delta     = operation.value(),
+                        .hit_count = 0,
+                        .hit_decay = 1,
                     },
                 });
 
@@ -150,12 +156,17 @@ namespace mantle {
     }
 
     void OperationGrouper::flush_group(CacheCursor cursor, bool force) {
-        // This is intended to be used with heuristics that span multiple cycles.
-        (void)force;
-
         auto&& [key, group] = cache_.load(cursor);
         if (!key) {
             return;
+        }
+
+        // Operation groups need an exponential number of hits to avoid being flushed.
+        group.hit_decay *= 2;
+        if (!force) {
+            if (group.hit_decay < group.hit_count) {
+                return; // Seems active, keep this group alive for now.
+            }
         }
 
         OperationVectorWriter* writer = nullptr;

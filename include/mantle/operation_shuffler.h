@@ -54,6 +54,10 @@ namespace mantle {
     //   - Size of the partition. We use quick-sort internally so we shouldn't let this get too small.
     //      - Could switch to insertion sort when things get small.
     //
+    // TODO: Do a radix sort on the user-data to quickly group-by object type.
+    //       Also, stop quick-sorting on address. It reduces throughput too much.
+    //
+    //
     class OperationShuffler {
     public:
         using Metrics = OperationShufflerMetrics;

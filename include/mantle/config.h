@@ -5,7 +5,12 @@
 #include <cstdint>
 #include <cstddef>
 
+// TODO: Use macros for the global variables instead of global variables.
+
 namespace mantle {
+
+    // This flag enables weighted reference counting in handles.
+    constexpr bool ENABLE_WEIGHTED_REFERENCE_COUNTING = true;
 
     // The number of messages that can be queued between `Domain` and `Region` endpoints.
     constexpr size_t STREAM_CAPACITY = 4096;
@@ -20,7 +25,7 @@ namespace mantle {
         // The maximum number of pending operations per-region.
         size_t ledger_capacity = 1024 * 1024;
 
-        // This enables the deflator which tries to group operations on the same object
+        // This enables the grouper which tries to consolidate operations on the same object.
         // and net their effects to reduce the number of operations that need to be retired/applied.
         bool operation_grouper_enabled = true;
 

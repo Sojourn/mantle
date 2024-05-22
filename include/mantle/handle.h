@@ -2,6 +2,7 @@
 
 #include <utility>
 #include <type_traits>
+#include "config.h"
 #include "region.h"
 #include "object.h"
 #include "operation.h"
@@ -175,17 +176,30 @@ namespace mantle {
                 return make_null_operation();
             }
 
-            // Check if we need to gain additional weight.
-            if (weight() == 0) {
-                // NOTE: Submit the new operation before the old operation.
-                object->start_increment_operation(make_increment_operation(object, Operation::EXPONENT_MAX));
-                object->start_decrement_operation(operation_);
-                operation_ = make_decrement_operation(object, Operation::EXPONENT_MAX);
-            }
+            if constexpr (ENABLE_WEIGHTED_REFERENCE_COUNTING) {
+                // Check if we need to gain additional weight.
+                if (weight() == 0) {
+                    // NOTE: Submit the new operation before the old operation.
+                    object->start_increment_operation(make_increment_operation(object, Operation::EXPONENT_MAX));
+                    object->start_decrement_operation(operation_);
+                    operation_ = make_decrement_operation(object, Operation::EXPONENT_MAX);
+                }
 
-            // Split our weight in half by reducing the exponent by one.
-            operation_ = make_decrement_operation(object, weight() - 1);
-            return operation_;
+                // Split our weight in half by reducing the exponent by one.
+                operation_ = make_decrement_operation(object, weight() - 1);
+                return operation_;
+            }
+            else {
+                // Create a paired increment and decrement.
+                Operation increment = make_increment_operation(object);
+                Operation decrement = make_decrement_operation(object);
+
+                // The increment can be started immediately.
+                object->start_increment_operation(increment);
+
+                // The decrement will be started once the new reference is dropped.
+                return decrement;
+            }
         }
 
     private:
