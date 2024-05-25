@@ -80,36 +80,39 @@ Handle<TestObject> TestObjectAllocator::allocate_object() {
     return make_handle(*object);
 }
 
-void TestObjectAllocator::finalize(Object& object) noexcept {
-    TestObject* test_object = &static_cast<TestObject&>(object);
 
-    metrics_.deallocation_count += 1;
-    test_object->death_count += 1;
-    if (test_object->birth_count != test_object->death_count) {
-        std::scoped_lock<std::mutex> lock(test_object->action_log_mutex);
-        asm("int $3");
+void TestObjectAllocator::finalize(ObjectGroup, std::span<Object*> objects) noexcept {
+    for (Object* object: objects) {
+        TestObject* test_object = &static_cast<TestObject&>(*object);
+
+        metrics_.deallocation_count += 1;
+        test_object->death_count += 1;
+        if (test_object->birth_count != test_object->death_count) {
+            std::scoped_lock<std::mutex> lock(test_object->action_log_mutex);
+            asm("int $3");
+        }
+
+        {
+            Region& region = get_region();
+
+            Action action = {
+                .type             = ActionType::REAP,
+                .object           = test_object,
+                .source_region_id = region.id(),
+                .target_region_id = region.id(),
+                .state            = region.state(),
+                .phase            = region.phase(),
+                .cycle            = region.cycle(),
+            };
+
+            worker_.record_action(action);
+        }
+
+        test_object->old_action_log = std::move(test_object->action_log);
+        test_object->action_log.clear();
+
+        pool_.push_back(test_object);
     }
-
-    {
-        Region& region = get_region();
-
-        Action action = {
-            .type             = ActionType::REAP,
-            .object           = test_object,
-            .source_region_id = region.id(),
-            .target_region_id = region.id(),
-            .state            = region.state(),
-            .phase            = region.phase(),
-            .cycle            = region.cycle(),
-        };
-
-        worker_.record_action(action);
-    }
-
-    test_object->old_action_log = std::move(test_object->action_log);
-    test_object->action_log.clear();
-
-    pool_.push_back(test_object);
 }
 
 ActionGenerator::ActionGenerator(const Settings& settings) {

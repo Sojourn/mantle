@@ -3,7 +3,9 @@
 #include <span>
 #include <string_view>
 #include <utility>
+#include <cassert>
 #include "mantle/types.h"
+#include "mantle/util.h"
 #include "mantle/message.h"
 #include "mantle/connection.h"
 #include "mantle/operation.h"
@@ -73,15 +75,10 @@ namespace mantle {
         friend class Handle;
         friend class Object;
 
-        // TODO: Annotate these functions as `hot` and force them to inline.
-        void start_increment_operation(Object& object, Operation operation);
-        void start_decrement_operation(Object& object, Operation operation);
+        MANTLE_HOT void start_increment_operation(Object& object, Operation operation);
+        MANTLE_HOT void start_decrement_operation(Object& object, Operation operation);
 
-        // TODO: Annotate this function as `cold`.
-        void flush_operation(Operation operation);
-
-        // Called by an object when its reference count drops to zero.
-        void handle_abandoned(Object& object);
+        MANTLE_COLD void flush_operation(Operation operation);
 
     private:
         friend class Domain;
@@ -98,28 +95,53 @@ namespace mantle {
         void transition(Phase next_phase);
         void transition(Cycle next_cycle);
 
-        template<OperationType type>
-        void apply_operations(OperationRange operations);
+        void finalize_garbage();
 
     private:
         static constexpr State INITIAL_STATE = State::RUNNING;
         static constexpr Phase INITIAL_PHASE = Phase::RECV_ENTER;
         static constexpr Cycle INITIAL_CYCLE = 0;
 
-        Domain&              domain_;
-        RegionId             id_;
+        Domain&                     domain_;
+        RegionId                    id_;
 
-        State                state_;
-        Phase                phase_;
-        Cycle                cycle_;
-        size_t               depth_;
+        State                       state_;
+        Phase                       phase_;
+        Cycle                       cycle_;
+        size_t                      depth_;
 
-        ObjectFinalizer&     finalizer_;
-        OperationLedger      ledger_;
-        std::vector<Object*> trash_;
+        ObjectFinalizer&            finalizer_;
+        OperationLedger             ledger_;
 
-        Connection           connection_;
+        std::optional<ObjectGroups> garbage_;
+        std::vector<Object*>        garbage_pile_;
+
+        Connection                  connection_;
     };
+
+    inline void Region::start_increment_operation(Object&, Operation operation) {
+        assert(state_ != State::STOPPED);
+        assert(operation.type() == OperationType::INCREMENT);
+
+        // Fast-path: The operation can be added to the current transaction.
+        if (LIKELY(ledger_.write(operation))) {
+            return;
+        }
+
+        flush_operation(operation);
+    }
+
+    inline void Region::start_decrement_operation(Object&, Operation operation) {
+        assert(state_ != State::STOPPED);
+        assert(operation.type() == OperationType::DECREMENT);
+
+        // Fast-path: The operation can be added to the current transaction.
+        if (LIKELY(ledger_.write(operation))) {
+            return;
+        }
+
+        flush_operation(operation);
+    }
 
     std::string_view to_string(RegionState state);
     std::string_view to_string(RegionPhase phase);

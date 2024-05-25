@@ -79,7 +79,7 @@ struct TestObject : Object {
     void record_action(const Action& action);
 };
 
-class TestObjectAllocator : public ObjectFinalizer {
+class TestObjectAllocator final : public ObjectFinalizer {
 public:
     struct Metrics {
         size_t allocation_failure_count;
@@ -94,7 +94,8 @@ public:
     Metrics& metrics();
 
     Handle<TestObject> allocate_object();
-    void finalize(Object& object) noexcept override final;
+
+    void finalize(ObjectGroup, std::span<Object*> objects) noexcept override;
 
 private:
     WorkerThread&                            worker_;

@@ -6,8 +6,8 @@
 
 using namespace mantle;
 
-struct TrivialFinalizer : ObjectFinalizer {
-    void finalize(Object&) noexcept override final {}
+struct TrivialFinalizer final : ObjectFinalizer {
+    void finalize(ObjectGroup, std::span<Object*>) noexcept override {}
 };
 
 // Decrement the latch and step the region until it is safe to proceed.
@@ -76,7 +76,7 @@ void contend_mantle_handle(size_t thread_count, size_t iterations, size_t object
 }
 
 int main() {
-    size_t thread_count = 2;
+    size_t thread_count = 4;
     size_t iterations = 1000;
     size_t object_count = 1000;
 

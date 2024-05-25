@@ -6,10 +6,10 @@
 
 namespace mantle {
 
-    Object::Object(uint16_t user_data)
+    Object::Object(ObjectGroup group)
         : reference_count_(0)
         , region_id_(INVALID_REGION_ID)
-        , user_data_(user_data)
+        , group_(group)
     {
     }
 
@@ -30,17 +30,14 @@ namespace mantle {
         return region_id_;
     }
 
-    uint16_t Object::user_data() const {
-        return user_data_;
-    }
-
-    void Object::set_user_data(uint16_t user_data) {
-        user_data_ = user_data;
+    ObjectGroup Object::group() const {
+        return group_;
     }
 
     void Object::bind(RegionId region_id) {
-         // NOTE: This can have false negatives if multiple threads `bind` the same object.
-        assert(!is_managed());
+        if (UNLIKELY(is_managed())) {
+            abort(); // Don't bind an object more than once.
+        }
 
         region_id_ = region_id;
     }
@@ -83,16 +80,17 @@ namespace mantle {
         }
     }
 
-    void Object::apply_increment_operation(Operation operation) {
+    bool Object::apply_increment_operation(Operation operation) {
         assert(operation.object() == this);
         assert(operation.type() == OperationType::INCREMENT);
 
         info("[object:{}] apply increment - refs:{} exponent:{}", (const void*)this, reference_count_, operation.exponent());
 
         reference_count_ += operation.magnitude();
+        return true;
     }
 
-    void Object::apply_decrement_operation(Operation operation) {
+    bool Object::apply_decrement_operation(Operation operation) {
         assert(operation.object() == this);
         assert(operation.type() == OperationType::DECREMENT);
 
@@ -102,11 +100,11 @@ namespace mantle {
         if (reference_count_ < magnitude) {
             reference_count_ = 0;
             region_id_       = INVALID_REGION_ID;
-
-            get_region().handle_abandoned(*this);
+            return false;
         }
         else   {
             reference_count_ -= magnitude;
+            return true;
         }
     }
 

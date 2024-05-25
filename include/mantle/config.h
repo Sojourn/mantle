@@ -10,7 +10,7 @@
 namespace mantle {
 
     // This flag enables weighted reference counting in handles.
-    constexpr bool ENABLE_WEIGHTED_REFERENCE_COUNTING = true;
+    constexpr bool ENABLE_WEIGHTED_REFERENCE_COUNTING = false;
 
     // The number of messages that can be queued between `Domain` and `Region` endpoints.
     constexpr size_t STREAM_CAPACITY = 4096;

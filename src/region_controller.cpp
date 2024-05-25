@@ -117,11 +117,9 @@ namespace mantle {
         , state_(State::STARTING)
         , phase_(Phase::START)
         , cycle_(0)
-        , grouper_(retired_increments_, retired_decrements_)
-        , metrics_(grouper_, shuffler_)
+        , operation_grouper_(retired_increments_, retired_decrements_)
+        , metrics_(operation_grouper_)
     {
-        shuffler_.set_max_depth(config_.shuffle_max_depth);
-        shuffler_.set_min_partition_size(config_.shuffle_min_partition_size);
     }
 
     RegionId RegionController::region_id() const {
@@ -133,7 +131,7 @@ namespace mantle {
     }
 
     bool RegionController::is_quiescent() const {
-        return !grouper_.is_dirty();
+        return !operation_grouper_.is_dirty();
     }
 
     auto RegionController::state() const -> State {
@@ -203,9 +201,8 @@ namespace mantle {
 
                 return Message {
                     .retire = {
-                        .type       = MessageType::RETIRE,
-                        .increments = retired_increments_.data(),
-                        .decrements = retired_decrements_.data(),
+                        .type    = MessageType::RETIRE,
+                        .garbage = object_grouper_.flush(),
                     },
                 };
             }
@@ -323,11 +320,6 @@ namespace mantle {
             }
             case Phase::SUBMIT: {
                 // The region has submitted operations for us to route.
-
-                // At this point the region has processed these from the previous cycle.
-                // Clear them out so they can be re-used in the current cycle.
-                retired_increments_.clear();
-                retired_decrements_.clear();
                 break;
             }
             case Phase::SUBMIT_BARRIER: {
@@ -344,17 +336,19 @@ namespace mantle {
                 break;
             }
             case Phase::RETIRE_BARRIER: {
+                object_grouper_.reset();                
+
                 // All submitted operations have been routed.
                 bool force = (state_ == State::STOPPING) || (state_ == State::STOPPED);
-                grouper_.flush(force);
+                operation_grouper_.flush(force);
 
-                // Approximately sort the arrays by `Object` address.
-                if (config_.operation_shuffler_enabled) {
-                    shuffler_.sort(retired_increments_.span());
-                    shuffler_.sort(retired_decrements_.span());
-                    shuffler_.run(config_.shuffle_max_step_count);
-                    shuffler_.clear();
-                }
+                // Apply flushed operations. Apply the increments first.
+                // Note sure if this is needed, but better safe than sorry.
+                apply_operations<OperationType::INCREMENT>(retired_increments_.span());
+                apply_operations<OperationType::DECREMENT>(retired_decrements_.span());
+
+                retired_increments_.clear();
+                retired_decrements_.clear();
                 break;
             }
             case Phase::RETIRE: {
@@ -395,12 +389,31 @@ namespace mantle {
 
             RegionController& controller = *controllers_[object->region_id()];
             bool flush = !controller.config_.operation_grouper_enabled;
-            controller.grouper_.write(operation, flush);
+            controller.operation_grouper_.write(operation, flush);
 
             count += 1;
         }
 
         return count;
+    }
+
+    template<OperationType type>
+    void RegionController::apply_operations(std::span<OperationBatch> operations) {
+        for (const OperationBatch& batch: operations) {
+            for (Operation operation: batch.operations) {
+                if (Object* object = operation.mutable_object()) {
+                    if (object->apply_operation<type>(operation)) {
+                        // The object is still alive.
+                    }
+                    else {
+                        object_grouper_.write(*object);
+                    }
+                }
+                else {
+                    // Ignore padding operations.
+                }
+            }
+        }
     }
 
     RegionControllerCensus synchronize(RegionControllerGroup& controllers) {

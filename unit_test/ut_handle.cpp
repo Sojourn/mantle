@@ -10,7 +10,7 @@ struct TestObject : Object {
 };
 
 // TestObjectAllocator?
-class TestObjectFinalizer : public ObjectFinalizer {
+class TestObjectFinalizer final : public ObjectFinalizer {
 public:
     TestObjectFinalizer(std::vector<TestObject*>& pool)
         : pool_(pool)
@@ -22,13 +22,15 @@ public:
         return count_;
     }
 
-    void finalize(Object& object) noexcept override final {
-        TestObject& test_object = static_cast<TestObject&>(object);
-        test_object.death_count += 1;
-        pool_.push_back(&test_object);
-        count_++;
+    void finalize(ObjectGroup, std::span<Object*> objects) noexcept override {
+        for (Object* object: objects) {
+            TestObject& test_object = static_cast<TestObject&>(*object);
+            test_object.death_count += 1;
+            pool_.push_back(&test_object);
+            count_++;
 
-        CHECK(test_object.birth_count == test_object.death_count);
+            CHECK(test_object.birth_count == test_object.death_count);
+        }
     }
 
 private:
@@ -98,7 +100,9 @@ TEST_CASE("Handle") {
                 Region region(domain, finalizer);
                 {
                     Handle<TestObject> h0 = new_test_object();
-                    CHECK(h0.weight() == 0);
+                    if (ENABLE_WEIGHTED_REFERENCE_COUNTING) {
+                        CHECK(!h0.weight() == 0);
+                    }
                 }
             }
         }
@@ -112,8 +116,10 @@ TEST_CASE("Handle") {
                     Handle<TestObject> h0 = new_test_object();
 
                     Handle<TestObject> h1 = h0;
-                    CHECK(h0.weight() == Operation::EXPONENT_MAX - 1);
-                    CHECK(h1.weight() == Operation::EXPONENT_MAX - 1);
+                    if (ENABLE_WEIGHTED_REFERENCE_COUNTING) {
+                        CHECK(h0.weight() == Operation::EXPONENT_MAX - 1);
+                        CHECK(h1.weight() == Operation::EXPONENT_MAX - 1);
+                    }
 
                     // Exhaust the weight of h0.
                     do {
@@ -123,8 +129,10 @@ TEST_CASE("Handle") {
 
                     // Do one more copy from it, forcing it to gain weight and split.
                     h1 = h0;
-                    CHECK(h0.weight() == Operation::EXPONENT_MAX - 1);
-                    CHECK(h1.weight() == Operation::EXPONENT_MAX - 1);
+                    if (ENABLE_WEIGHTED_REFERENCE_COUNTING) {
+                        CHECK(h0.weight() == Operation::EXPONENT_MAX - 1);
+                        CHECK(h1.weight() == Operation::EXPONENT_MAX - 1);
+                    }
                 }
             }
         }
@@ -137,33 +145,49 @@ TEST_CASE("Handle") {
             Region region(domain, finalizer);
             {
                 Handle<TestObject> h0 = new_test_object();
-                CHECK(h0.weight() == 0);
+                if (ENABLE_WEIGHTED_REFERENCE_COUNTING) {
+                    CHECK(h0.weight() == 0);
+                }
 
                 Handle<TestObject> h1 = h0;
-                CHECK(h0.weight() == (Operation::EXPONENT_MAX - 1));
-                CHECK(h1.weight() == (Operation::EXPONENT_MAX - 1));
+                if (ENABLE_WEIGHTED_REFERENCE_COUNTING) {
+                    CHECK(h0.weight() == (Operation::EXPONENT_MAX - 1));
+                    CHECK(h1.weight() == (Operation::EXPONENT_MAX - 1));
+                }
 
                 Handle<TestObject> h2;
                 h2 = h1;
-                CHECK(h1.weight() == (Operation::EXPONENT_MAX - 2));
-                CHECK(h2.weight() == (Operation::EXPONENT_MAX - 2));
+                if (ENABLE_WEIGHTED_REFERENCE_COUNTING) {
+                    CHECK(h1.weight() == (Operation::EXPONENT_MAX - 2));
+                    CHECK(h2.weight() == (Operation::EXPONENT_MAX - 2));
+                }
 
                 h0.reset();
-                CHECK(h0.weight() == 0);
+                if (ENABLE_WEIGHTED_REFERENCE_COUNTING) {
+                    CHECK(h0.weight() == 0);
+                }
 
                 h0 = std::move(h1);
-                CHECK(h0.weight() == (Operation::EXPONENT_MAX - 2));
-                CHECK(h1.weight() == 0);
+                if (ENABLE_WEIGHTED_REFERENCE_COUNTING) {
+                    CHECK(h0.weight() == (Operation::EXPONENT_MAX - 2));
+                    CHECK(h1.weight() == 0);
+                }
 
                 h1 = h2;
-                CHECK(h1.weight() == (Operation::EXPONENT_MAX - 3));
-                CHECK(h2.weight() == (Operation::EXPONENT_MAX - 3));
+                if (ENABLE_WEIGHTED_REFERENCE_COUNTING) {
+                    CHECK(h1.weight() == (Operation::EXPONENT_MAX - 3));
+                    CHECK(h2.weight() == (Operation::EXPONENT_MAX - 3));
+                }
 
                 h2 = h2;
-                CHECK(h2.weight() == (Operation::EXPONENT_MAX - 3));
+                if (ENABLE_WEIGHTED_REFERENCE_COUNTING) {
+                    CHECK(h2.weight() == (Operation::EXPONENT_MAX - 3));
+                }
 
                 h1 = h1;
-                CHECK(h1.weight() == (Operation::EXPONENT_MAX - 3));
+                if (ENABLE_WEIGHTED_REFERENCE_COUNTING) {
+                    CHECK(h1.weight() == (Operation::EXPONENT_MAX - 3));
+                }
             }
             CHECK(finalizer.count() == 0);
         }

@@ -11,47 +11,39 @@ struct ScratchObject : Object {
 class ScratchObjectFinalizer : public ObjectFinalizer {
 public:
     ScratchObjectFinalizer(std::vector<ScratchObject*>& pool)
-        : pool_(pool)
+        : pool(pool)
     {
     }
 
-    void finalize(Object& object) noexcept override final {
-        ScratchObject& scratch_object = static_cast<ScratchObject&>(object);
+    void finalize(ObjectGroup, std::span<Object*> objects) noexcept override final {
+        for (Object* object: objects) {
+            ScratchObject& scratch_object = static_cast<ScratchObject&>(*object);
 
-        REQUIRE(!scratch_object.finalized);
-        scratch_object.finalized = true;
+            REQUIRE(!scratch_object.finalized);
+            scratch_object.finalized = true;
 
-        pool_.push_back(&scratch_object);
+            pool.push_back(&scratch_object);
+        }
     }
 
-private:
-    std::vector<ScratchObject*>& pool_;
+    std::vector<ScratchObject*>& pool;
 };
 
 TEST_CASE("Scratch") {
     ScratchObject object;
+
     std::vector<ScratchObject*> pool;
-    pool.push_back(&object);
-
-    SECTION("Initial Cache State") {
-        using Cache = ObjectCache<int, 512, 8>;
-
-        Cache cache;
-        for (Cache::Cursor cursor; cursor; cursor.advance()) {
-            Cache::Entry entry = cache.load(cursor);
-            REQUIRE(entry.key == nullptr);
-        }
-    }
-    SECTION("Reference Counting") {
+    ScratchObjectFinalizer finalizer(pool);
+    {
         Domain domain;
-        ScratchObjectFinalizer finalizer(pool);
         Region region(domain, finalizer);
-
-        // SECTION("0") {
-        //     Handle<ScratchObject> handle;
-        // }
-        SECTION("1") {
-            Handle<ScratchObject> handle = make_handle(object);
+        {
+            Handle<ScratchObject> h0 = make_handle(object);
+            Handle<ScratchObject> h1 = std::move(h0);
+            Handle<ScratchObject> h2;
+            h2 = std::move(h1);
         }
+        CHECK(finalizer.pool.empty());
     }
+    CHECK(finalizer.pool.size() == 1);
 }

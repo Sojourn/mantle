@@ -21,14 +21,6 @@ namespace mantle {
         return cache_size_ > 0;
     }
 
-    OperationRange OperationGrouper::increments() {
-        return increment_writer_.data();
-    }
-
-    OperationRange OperationGrouper::decrements() {
-        return decrement_writer_.data();
-    }
-
     void OperationGrouper::write(Operation operation, bool flush) {
         Object* object = operation.mutable_object();
         if (UNLIKELY(!object)) {

@@ -3,6 +3,7 @@ add_executable(unit_test
         unit_test.cpp
         ut_scratch.cpp
         ut_handle.cpp
+        ut_object_grouper.cpp
         ut_connection.cpp
         ut_operation.cpp
         ut_operation_ledger.cpp

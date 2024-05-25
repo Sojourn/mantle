@@ -48,9 +48,8 @@ namespace mantle {
 
         // domain -> region
         struct Retire {
-            MessageType    type;
-            OperationRange increments;
-            OperationRange decrements;
+            MessageType  type;
+            ObjectGroups garbage;
         } retire;
 
         // domain -> region

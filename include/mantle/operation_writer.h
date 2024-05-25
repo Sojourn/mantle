@@ -7,6 +7,7 @@
 #include <cassert>
 #include <emmintrin.h>
 #include "mantle/types.h"
+#include "mantle/util.h"
 #include "mantle/operation.h"
 
 namespace mantle {
@@ -36,7 +37,9 @@ namespace mantle {
             return head_;
         }
 
-        bool write(Operation operation) {
+        // TODO: Look at the code-gen for this. I think it might suck.
+        //       We want a fairly short instruction sequence so it can inline.
+        MANTLE_HOT bool write(Operation operation) {
             if (head_ == tail_) {
                 return false;
             }

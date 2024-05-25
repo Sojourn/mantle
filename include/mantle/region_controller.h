@@ -13,10 +13,11 @@
 #include "mantle/config.h"
 #include "mantle/util.h"
 #include "mantle/message.h"
+#include "mantle/object.h"
+#include "mantle/object_grouper.h"
 #include "mantle/operation.h"
 #include "mantle/operation_ledger.h"
 #include "mantle/operation_grouper.h"
-#include "mantle/operation_shuffler.h"
 
 #define MANTLE_REGION_CONTROLLER_ACTIONS(X) \
     X(SEND)                                 \
@@ -141,16 +142,13 @@ namespace mantle {
 
     struct RegionControllerMetrics {
         const OperationGrouper::Metrics& operation_grouper;
-        const OperationShuffler::Metrics& operation_shuffler;
         size_t increment_count;
         size_t decrement_count;
 
         RegionControllerMetrics(
-            const OperationGrouper& operation_grouper,
-            const OperationShuffler& operation_shuffler
+            const OperationGrouper& operation_grouper
         )
             : operation_grouper(operation_grouper.metrics())
-            , operation_shuffler(operation_shuffler.metrics())
             , increment_count(0)
             , decrement_count(0)
         {
@@ -201,6 +199,9 @@ namespace mantle {
 
         size_t route_operations(OperationType type, SequenceRange range);
 
+        template<OperationType type>
+        void apply_operations(std::span<OperationBatch> operations);
+
     private:
         RegionId               region_id_;
         RegionControllerGroup& controllers_;
@@ -217,8 +218,8 @@ namespace mantle {
         OperationVectorWriter  retired_increments_;
         OperationVectorWriter  retired_decrements_;
 
-        OperationGrouper       grouper_;
-        OperationShuffler      shuffler_;
+        OperationGrouper       operation_grouper_;
+        ObjectGrouper          object_grouper_;
 
         Metrics                metrics_;
     };

@@ -127,59 +127,7 @@ namespace mantle {
             handle_message(message);
         }
 
-        if (depth_) {
-            // `Region::step` and `ObjectFinalizer::finalize` are co-recursive.
-            // Short circuiting object finalization in nested `Region::step` calls
-            // prevents unbounded stack usage.
-            assert(depth_ == 1);
-        }
-        else {
-            ScopedIncrement<size_t> lock(depth_);
-
-            for (size_t i = 0; i < trash_.size(); ++i) {
-                try {
-                    finalizer_.finalize(*trash_[i]);
-                }
-                catch (const std::exception& exception) {
-                    // The finalizer shouldn't be throwing--it probably indicates a leak.
-                    warning("Failed to finalize object:{} - {}", (const void*)trash_[i], exception.what());
-                    assert(false);
-                }
-            }
-
-            trash_.clear();
-        }
-    }
-
-    void Region::start_increment_operation(Object&, Operation operation) {
-        assert(state_ != State::STOPPED);
-        assert(operation.type() == OperationType::INCREMENT);
-
-        // JSR: We can avoid accessing the object _at all_ by taking the slow path.
-        // Fast-path: This operation can be immediately applied because the object is local.
-        // if (id_ == object.region_id()) {
-        //     object.apply_increment_operation(operation);
-        //     return;
-        // }
-
-        // Fast-path: The operation can be added to the current transaction.
-        if (LIKELY(ledger_.write(operation))) {
-            return;
-        }
-
-        flush_operation(operation);
-    }
-
-    void Region::start_decrement_operation(Object&, Operation operation) {
-        assert(state_ != State::STOPPED);
-        assert(operation.type() == OperationType::DECREMENT);
-
-        // Fast-path: The operation can be added to the current transaction.
-        if (LIKELY(ledger_.write(operation))) {
-            return;
-        }
-
-        flush_operation(operation);
+        finalize_garbage();
     }
 
     void Region::flush_operation(Operation operation) {
@@ -187,10 +135,6 @@ namespace mantle {
             bool non_blocking = false;
             step(non_blocking);
         } while (!ledger_.write(operation));
-    }
-
-    void Region::handle_abandoned(Object& object) {
-        trash_.push_back(&object);
     }
 
     const OperationLedger& Region::ledger() const {
@@ -247,8 +191,8 @@ namespace mantle {
             case MessageType::RETIRE: {
                 assert(phase_ == Phase::RECV_RETIRE);
 
-                apply_operations<OperationType::INCREMENT>(message.retire.increments);
-                apply_operations<OperationType::DECREMENT>(message.retire.decrements);
+                assert(!garbage_);
+                garbage_ = message.retire.garbage;
 
                 transition(Phase::RECV_LEAVE);
                 break;
@@ -293,17 +237,46 @@ namespace mantle {
         cycle_ = next_cycle;
     }
 
-    template<OperationType type>
-    void Region::apply_operations(OperationRange operations) {
-        for (OperationBatch* batch = operations.head; batch != operations.tail; ++batch) {
-            for (Operation& operation: batch->operations) {
-                if (Object* object = operation.mutable_object()) {
-                    object->apply_operation<type>(operation);
+    void Region::finalize_garbage() {
+        if (depth_) {
+            // `Region::step` and `ObjectFinalizer::finalize` are co-recursive.
+            // Short circuiting object finalization in nested `Region::step` calls
+            // prevents unbounded stack usage.
+            assert(depth_ == 1);
+
+            if (garbage_) {
+                // Add garbage to the pile until we can safely deal with it.
+                for (ObjectGroup group = garbage_->group_min; group <= garbage_->group_max; ++group) {
+                    if (std::span<Object*> objects = garbage_->group_members(group); !objects.empty()) {
+                        garbage_pile_.insert(
+                            garbage_pile_.end(),
+                            objects.begin(),
+                            objects.end()
+                        );
+                    }
                 }
-                else {
-                    // Padding operations don't need to be applied.
-                }
+
+                garbage_.reset();
             }
+        }
+        else {
+            ScopedIncrement<size_t> lock(depth_);
+
+            if (garbage_) {
+                for (ObjectGroup group = garbage_->group_min; group <= garbage_->group_max; ++group) {
+                    if (std::span<Object*> objects = garbage_->group_members(group); !objects.empty()) {
+                        finalizer_.finalize(group, objects);
+                    }
+                }
+
+                garbage_.reset();
+            }
+
+            for (Object* object: garbage_pile_) {
+                finalizer_.finalize(object->group(), std::span{&object, 1});
+            }
+
+            garbage_pile_.clear();
         }
     }
 

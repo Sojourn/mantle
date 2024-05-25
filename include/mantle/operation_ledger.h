@@ -5,6 +5,7 @@
 #include <cstddef>
 #include "mantle/types.h"
 #include "mantle/config.h"
+#include "mantle/util.h"
 #include "mantle/ring.h"
 #include "mantle/operation.h"
 #include "mantle/operation_writer.h"
@@ -94,7 +95,7 @@ namespace mantle {
 
         // Adds an operation to the current, uncommitted transaction.
         // This can fail and return false if the ledger is full.
-        bool write(Operation operation) {
+        MANTLE_HOT bool write(Operation operation) {
             return writer_.write(operation);
         }
 
