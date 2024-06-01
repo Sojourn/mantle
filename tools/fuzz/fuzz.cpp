@@ -47,18 +47,10 @@ void TestObjectAllocator::Metrics::reset() {
     deallocation_count       = 0;
 }
 
-TestObjectAllocator::TestObjectAllocator(WorkerThread& worker, size_t capacity)
+TestObjectAllocator::TestObjectAllocator(WorkerThread& worker, size_t)
     : worker_(worker)
 {
     metrics_.reset();
-
-    pool_.reserve(capacity);
-    storage_.reserve(capacity);
-    for (size_t i = 0; i < capacity; ++i) {
-        pool_.push_back(
-            storage_.emplace_back(std::make_unique<TestObject>()).get()
-        );
-    }
 }
 
 auto TestObjectAllocator::metrics() -> Metrics& {
@@ -66,17 +58,9 @@ auto TestObjectAllocator::metrics() -> Metrics& {
 }
 
 Handle<TestObject> TestObjectAllocator::allocate_object() {
-    if (pool_.empty()) {
-        metrics_.allocation_failure_count += 1;
-        return Handle<TestObject>();
-    }
-
-    TestObject* object = pool_.back();
-    pool_.pop_back();
-
+    TestObject* object = new TestObject;
+    object->birth_count += 1; 
     metrics_.allocation_success_count += 1;
-    object->birth_count += 1;
-
     return make_handle(*object);
 }
 
@@ -110,8 +94,7 @@ void TestObjectAllocator::finalize(ObjectGroup, std::span<Object*> objects) noex
 
         test_object->old_action_log = std::move(test_object->action_log);
         test_object->action_log.clear();
-
-        pool_.push_back(test_object);
+        delete test_object;
     }
 }
 
@@ -170,6 +153,9 @@ WorkerThread::WorkerThread(Driver& driver)
             Region region(driver_.domain(), object_allocator_);
 
             while (region.cycle() < driver_.settings().cycle_count) {
+                // if ((region.cycle() % 100) == 0) {
+                    std::cout << fmt::format("[worker_thread:{}] cycle: {}\n", region.id(), region.cycle());
+                // }
                 step(region);
             }
         }
@@ -347,10 +333,10 @@ int main(int argc, char** argv) {
     size_t rounds = 1;
     for (size_t i = 0; i < rounds; ++i) {
         Settings settings;
-        settings.cycle_count = 10000;
+        settings.cycle_count = 1000;
         settings.worker_thread_count = 6;
         settings.worker_object_count = 100;
-        settings.action_type_ratios[static_cast<size_t>(ActionType::STEP)] = 1;
+        settings.action_type_ratios[static_cast<size_t>(ActionType::STEP)] = 4;
         settings.action_type_ratios[static_cast<size_t>(ActionType::MAKE)] = 2;
         settings.action_type_ratios[static_cast<size_t>(ActionType::POKE)] = 1;
         settings.action_type_ratios[static_cast<size_t>(ActionType::DROP)] = 3;
@@ -360,9 +346,9 @@ int main(int argc, char** argv) {
         Driver driver(settings);
         driver.run();
 
-        if ((i % 100) == 0) {
+        // if ((i % 100) == 0) {
             std::cout << fmt::format("{} / {}", i, rounds) << std::endl;
-        }
+        // }
 
         for (RegionId region_id = 0; region_id < settings.worker_thread_count; ++region_id) {
             const WorkerThread::Metrics& metrics = driver.worker_thread(region_id).metrics();

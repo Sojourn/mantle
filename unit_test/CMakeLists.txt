@@ -9,7 +9,6 @@ add_executable(unit_test
         ut_operation_ledger.cpp
         ut_sequence_range_history.cpp
         ut_operation_grouper.cpp
-        ut_operation_shuffler.cpp
         ut_region_controller.cpp
         )
 

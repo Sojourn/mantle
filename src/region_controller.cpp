@@ -336,10 +336,8 @@ namespace mantle {
                 break;
             }
             case Phase::RETIRE_BARRIER: {
-                object_grouper_.reset();                
-
                 // All submitted operations have been routed.
-                bool force = (state_ == State::STOPPING) || (state_ == State::STOPPED);
+                const bool force = (state_ == State::STOPPING) || (state_ == State::STOPPED);
                 operation_grouper_.flush(force);
 
                 // Apply flushed operations. Apply the increments first.

@@ -1,13 +1,16 @@
 #pragma once
 
+#include <iostream>
 #include <span>
 #include <array>
-#include <compare>
 #include <atomic>
 #include <limits>
 #include <cstdint>
 #include <cstddef>
 #include <climits>
+#include <cassert>
+#include <fmt/core.h>
+#include "mantle/config.h"
 
 namespace mantle {
 
@@ -30,26 +33,29 @@ namespace mantle {
         constexpr auto operator<=>(const SequenceRange&) const noexcept = default;
     };
 
-
     struct ObjectGroups {
         Object**         objects;
+        size_t           object_count;
         ObjectGroup      group_min;     // Inclusive.
         ObjectGroup      group_max;     // Inclusive.
         size_t*          group_offsets; // Offsets into the objects array (where to find members).
         ObjectGroupMask* group_mask;    // A bitset of non-empty groups.
 
         [[nodiscard]]
-        size_t object_count() const {
-            return group_offsets[static_cast<size_t>(group_max) + 1];
-        }
-
-        [[nodiscard]]
         size_t group_member_count(ObjectGroup group) const {
+            if constexpr (!ENABLE_OBJECT_GROUPING) {
+                abort();
+            }
+
             return group_offsets[static_cast<size_t>(group) + 1] - group_offsets[group];
         }
 
         [[nodiscard]]
         std::span<Object*> group_members(ObjectGroup group) {
+            if constexpr (!ENABLE_OBJECT_GROUPING) {
+                abort();
+            }
+
             return {
                 &objects[group],
                 group_member_count(group)
@@ -58,9 +64,14 @@ namespace mantle {
 
         template<typename Visitor>
         void for_each_group(Visitor&& visitor) {
-            // TODO: Scan using the mask. This is probably faster for small group counts though...
+            if constexpr (!ENABLE_OBJECT_GROUPING) {
+                abort();
+            }
+
             for (ObjectGroup group = group_min; group <= group_max; ++group) {
-                visitor(group);
+                if (std::span<Object*> members = group_members(group); !members.empty()) {
+                    visitor(group, members);
+                }
             }
         }
     };

@@ -5,7 +5,6 @@ set(MANTLE_SOURCE_FILES
     region_controller.cpp
     object.cpp
     operation_grouper.cpp
-    operation_shuffler.cpp
     doorbell.cpp
     selector.cpp
 )

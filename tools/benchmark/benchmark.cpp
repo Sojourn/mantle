@@ -24,8 +24,7 @@ void contend_mantle_handle(size_t thread_count, size_t iterations, size_t object
     std::latch stopped_latch(thread_count + 1);
 
     Config config;
-    config.operation_grouper_enabled = false;
-    config.operation_shuffler_enabled = false;
+    config.operation_grouper_enabled = true;
 
     Domain domain(config);
     TrivialFinalizer finalizer;

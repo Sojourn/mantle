@@ -56,7 +56,7 @@ namespace mantle {
         cpu_set_t set;
         CPU_ZERO(&set);
 
-        for (size_t cpu: cpus) {
+        for (const size_t cpu: cpus) {
             CPU_SET(static_cast<int>(cpu), &set);
         }
 

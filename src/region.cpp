@@ -246,37 +246,44 @@ namespace mantle {
 
             if (garbage_) {
                 // Add garbage to the pile until we can safely deal with it.
-                for (ObjectGroup group = garbage_->group_min; group <= garbage_->group_max; ++group) {
-                    if (std::span<Object*> objects = garbage_->group_members(group); !objects.empty()) {
-                        garbage_pile_.insert(
-                            garbage_pile_.end(),
-                            objects.begin(),
-                            objects.end()
-                        );
-                    }
-                }
+                garbage_->for_each_group([this](ObjectGroup, std::span<Object*> members) {
+                    garbage_pile_.insert(
+                        garbage_pile_.end(),
+                        members.begin(),
+                        members.end()
+                    );
+                });
 
                 garbage_.reset();
             }
         }
         else {
-            ScopedIncrement<size_t> lock(depth_);
+            ScopedIncrement lock(depth_);
 
             if (garbage_) {
-                for (ObjectGroup group = garbage_->group_min; group <= garbage_->group_max; ++group) {
-                    if (std::span<Object*> objects = garbage_->group_members(group); !objects.empty()) {
-                        finalizer_.finalize(group, objects);
+                if constexpr (ENABLE_OBJECT_GROUPING) {
+                    garbage_->for_each_group([this](ObjectGroup group, std::span<Object*> members) {
+                        finalizer_.finalize(group, members);
+                    });
+                }
+                else {
+                    for (size_t i = 0; i < garbage_->object_count; ++i) {
+                        Object* object = garbage_->objects[i];
+                        finalizer_.finalize(object->group(), std::span{&object, 1});
                     }
                 }
 
                 garbage_.reset();
             }
 
-            for (Object* object: garbage_pile_) {
-                finalizer_.finalize(object->group(), std::span{&object, 1});
-            }
+            if (UNLIKELY(!garbage_pile_.empty())) {
+                for (size_t i = 0; i < garbage_pile_.size(); ++i) {
+                    Object* object = garbage_pile_[i];
+                    finalizer_.finalize(object->group(), std::span{&object, 1});
+                }
 
-            garbage_pile_.clear();
+                garbage_pile_.clear();
+            }
         }
     }
 

@@ -11,6 +11,7 @@ namespace mantle {
 
     // This flag enables weighted reference counting in handles.
     constexpr bool ENABLE_WEIGHTED_REFERENCE_COUNTING = false;
+    constexpr bool ENABLE_OBJECT_GROUPING = true;
 
     // The number of messages that can be queued between `Domain` and `Region` endpoints.
     constexpr size_t STREAM_CAPACITY = 4096;
@@ -28,13 +29,5 @@ namespace mantle {
         // This enables the grouper which tries to consolidate operations on the same object.
         // and net their effects to reduce the number of operations that need to be retired/applied.
         bool operation_grouper_enabled = true;
-
-        // These control how aggressively operations are sorted before being applied.
-        // It trades CPU cycles for better spacial locality (which has diminishing returns).
-        bool operation_shuffler_enabled = true;
-        size_t shuffle_max_step_count = 64;
-        size_t shuffle_max_depth = 8;
-        size_t shuffle_min_partition_size = 20;
     };
-
 }

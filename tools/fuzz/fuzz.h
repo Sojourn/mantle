@@ -99,8 +99,6 @@ public:
 
 private:
     WorkerThread&                            worker_;
-    std::vector<TestObject*>                 pool_;
-    std::vector<std::unique_ptr<TestObject>> storage_;
     Metrics                                  metrics_;
 };
 

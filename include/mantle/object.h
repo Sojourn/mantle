@@ -54,7 +54,7 @@ namespace mantle {
     };
 
     template<OperationType type>
-    bool Object::apply_operation(Operation operation) {
+    bool Object::apply_operation(const Operation operation) {
         assert(type == operation.type());
 
         switch (type) {
