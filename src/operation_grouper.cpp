@@ -3,13 +3,8 @@
 
 namespace mantle {
 
-    OperationGrouper::OperationGrouper(
-        OperationVectorWriter& increment_writer,
-        OperationVectorWriter& decrement_writer
-    )
-        : increment_writer_(increment_writer)
-        , decrement_writer_(decrement_writer)
-        , cache_size_(0)
+    OperationGrouper::OperationGrouper()
+        : cache_size_(0)
     {
     }
 
@@ -21,7 +16,15 @@ namespace mantle {
         return cache_size_ > 0;
     }
 
-    void OperationGrouper::write(Operation operation, bool flush) {
+    std::span<std::pair<Object*, int64_t>> OperationGrouper::increments() {
+        return increments_;
+    }
+
+    std::span<std::pair<Object*, int64_t>> OperationGrouper::decrements() {
+        return decrements_;
+    }
+
+    void OperationGrouper::write(const Operation operation, const bool flush) {
         Object* object = operation.mutable_object();
         if (UNLIKELY(!object)) {
             assert(false); // Unexpected, but not fatal.
@@ -33,10 +36,10 @@ namespace mantle {
             // The operation doesn't need to be re-encoded which makes this
             // much simpler than flushing an operation group.
             if (operation.type() == OperationType::INCREMENT) {
-                increment_writer_.write(operation);
+                increments_.emplace_back(operation.mutable_object(), operation.value());
             }
             else {
-                decrement_writer_.write(operation);
+                decrements_.emplace_back(operation.mutable_object(), operation.value());
             }
         }
         else {
@@ -57,7 +60,7 @@ namespace mantle {
             }
             else if (entry.key) {
                 // Replace an existing group.
-                bool force = true;
+                const bool force = true;
                 flush_group(cursor, force);
 
                 cache_.store(cursor, CacheEntry {
@@ -89,21 +92,24 @@ namespace mantle {
         }
     }
 
-    void OperationGrouper::flush(bool force) {
+    void OperationGrouper::flush(const bool force) {
         for (CacheCursor cursor; cursor; cursor.advance()) {
             flush_group(cursor, force);
         }
+    }
 
-        increment_writer_.flush();
-        decrement_writer_.flush();
+    void OperationGrouper::clear() {
+        increments_.clear();
+        decrements_.clear();
     }
 
     void OperationGrouper::reset() {
         for (CacheCursor cursor; cursor; cursor.advance()) {
             reset_group(cursor);
         }
-
         assert(cache_size_ == 0);
+
+        clear();
     }
 
     auto OperationGrouper::choose_way(Object* object) -> CacheCursor {
@@ -112,16 +118,14 @@ namespace mantle {
 
         // Check if an entry for the object already exists in the set.
         for (CacheCursor cursor = set.first; cursor != set.second; cursor.advance()) {
-            auto&& [key, group] = cache_.load(cursor);
-            if (key == object) {
+            if (auto&& [key, _] = cache_.load(cursor); key == object) {
                 return cursor;
             }
         }
 
         // Look for an empty entry.
         for (CacheCursor cursor = set.first; cursor != set.second; cursor.advance()) {
-            auto&& [key, group] = cache_.load(cursor);
-            if (!key) {
+            if (auto&& [key, _] = cache_.load(cursor); !key) {
                 return cursor;
             }
         }
@@ -134,8 +138,8 @@ namespace mantle {
             for (CacheCursor cursor = set.first; cursor != set.second; cursor.advance()) {
                 auto&& [key, group] = cache_.load(cursor);
 
-                int64_t delta = group.delta;
-                int64_t delta_magnitude = delta < 0 ? -delta : +delta;
+                const int64_t delta = group.delta;
+                const int64_t delta_magnitude = delta < 0 ? -delta : +delta;
 
                 if (delta_magnitude < min_delta_magnitude) {
                     min_cursor = cursor;
@@ -147,7 +151,7 @@ namespace mantle {
         }
     }
 
-    void OperationGrouper::flush_group(CacheCursor cursor, bool force) {
+    void OperationGrouper::flush_group(const CacheCursor cursor, const bool force) {
         auto&& [key, group] = cache_.load(cursor);
         if (!key) {
             return;
@@ -155,57 +159,25 @@ namespace mantle {
 
         // Operation groups need an exponential number of hits to avoid being flushed.
         group.hit_decay *= 2;
-        if (!force) {
-            if (group.hit_decay < group.hit_count) {
-                return; // Seems active, keep this group alive for now.
-            }
+        if (group.hit_decay < group.hit_count && !force) {
+            return; // Seems active, keep this group alive for now.
         }
 
-        OperationVectorWriter* writer = nullptr;
-        OperationType type = OperationType::INCREMENT;
-        int64_t remainder = 0;
-
-        // Deal with the sign so we can think about the delta as a remainder that can be reduced (magnitude).
-        if (group.delta >= 0) {
-            writer = &increment_writer_;
-            type = OperationType::INCREMENT;
-            remainder = +group.delta;
-        }
-        else {
-            writer = &decrement_writer_;
-            type = OperationType::DECREMENT;
-            remainder = -group.delta;
-        }
-        assert(remainder >= 0);
-
-        // Flush the group to one of the streams. This will produce O(log(delta)) operations.
-        while (remainder) {
-            int64_t exponent = std::min(log2_floor(remainder), static_cast<int64_t>(Operation::EXPONENT_MAX));
-            assert(exponent >= 0);
-
-            Operation operation = make_operation(key, type, static_cast<uint8_t>(exponent));
-            writer->write(operation);
-            note_operation_flushed(operation);
-
-            remainder -= 1ll << exponent;
-            assert(remainder >= 0);
-        }
+        std::vector<std::pair<Object*, int64_t>>& collection = group.delta >= 0 ? increments_ : decrements_;
+        collection.emplace_back(key, group.delta);
 
         reset_group(cursor);
     }
 
-    void OperationGrouper::reset_group(CacheCursor cursor) {
-        auto&& [key, _] = cache_.load(cursor);
-        if (!key) {
-            return;
+    void OperationGrouper::reset_group(const CacheCursor cursor) {
+        if (auto&& [key, _] = cache_.load(cursor); key) {
+            assert(cache_size_ > 0);
+            cache_.reset(cursor);
+            cache_size_ -= 1;
         }
-
-        assert(cache_size_ > 0);
-        cache_.reset(cursor);
-        cache_size_ -= 1;
     }
 
-    void OperationGrouper::note_operation_written(Operation operation) {
+    void OperationGrouper::note_operation_written(const Operation operation) {
         metrics_.written_count += 1;
 
         switch (operation.type()) {
@@ -220,7 +192,7 @@ namespace mantle {
         }
     }
 
-    void OperationGrouper::note_operation_flushed(Operation operation) {
+    void OperationGrouper::note_operation_flushed(const Operation operation) {
         metrics_.flushed_count += 1;
 
         switch (operation.type()) {

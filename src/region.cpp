@@ -58,7 +58,7 @@ namespace mantle {
 
             id_ = domain_.bind(*this);
             while (cycle_ == INITIAL_CYCLE) {
-                bool non_blocking = false;
+                constexpr bool non_blocking = false;
                 step(non_blocking);
             }
         }
@@ -100,12 +100,12 @@ namespace mantle {
         // indicates that it is safe to do so.
         state_ = State::STOPPING;
         while (state_ != State::STOPPED) {
-            bool non_blocking = false;
+            constexpr bool non_blocking = false;
             step(non_blocking);
         }
     }
 
-    void Region::step(bool non_blocking) {
+    void Region::step(const bool non_blocking) {
         // Start a new cycle if needed. We need to be in the initial phase, and have a reason to do it.
         bool start_cycle = true;
         start_cycle &= phase_ == INITIAL_PHASE;
@@ -132,7 +132,7 @@ namespace mantle {
 
     void Region::flush_operation(Operation operation) {
         do {
-            bool non_blocking = false;
+            constexpr bool non_blocking = false;
             step(non_blocking);
         } while (!ledger_.write(operation));
     }
@@ -210,7 +210,7 @@ namespace mantle {
         }
     }
 
-    void Region::transition(State next_state) {
+    void Region::transition(const State next_state) {
         if (state_ == next_state) {
             return;
         }
@@ -219,7 +219,7 @@ namespace mantle {
         state_ = next_state;
     }
 
-    void Region::transition(Phase next_phase) {
+    void Region::transition(const Phase next_phase) {
         if (phase_ == next_phase) {
             return;
         }
@@ -228,7 +228,7 @@ namespace mantle {
         phase_ = next_phase;
     }
 
-    void Region::transition(Cycle next_cycle) {
+    void Region::transition(const Cycle next_cycle) {
         if (cycle_ == next_cycle) {
             return;
         }
@@ -262,6 +262,8 @@ namespace mantle {
 
             if (garbage_) {
                 if constexpr (ENABLE_OBJECT_GROUPING) {
+                    assert(garbage_->object_count == garbage_->group_offsets[garbage_->group_max + 1]);
+
                     garbage_->for_each_group([this](ObjectGroup group, std::span<Object*> members) {
                         finalizer_.finalize(group, members);
                     });
@@ -277,6 +279,8 @@ namespace mantle {
             }
 
             if (UNLIKELY(!garbage_pile_.empty())) {
+                // This collection can be modified while we are iterating over it.
+                // Use index-based iteration to avoid invalidation issues.
                 for (size_t i = 0; i < garbage_pile_.size(); ++i) {
                     Object* object = garbage_pile_[i];
                     finalizer_.finalize(object->group(), std::span{&object, 1});

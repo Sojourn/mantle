@@ -105,7 +105,7 @@ namespace mantle {
     }
 
     RegionController::RegionController(
-        RegionId region_id,
+        const RegionId region_id,
         RegionControllerGroup& controllers,
         const OperationLedger& ledger,
         const Config& config
@@ -117,7 +117,8 @@ namespace mantle {
         , state_(State::STARTING)
         , phase_(Phase::START)
         , cycle_(0)
-        , operation_grouper_(retired_increments_, retired_decrements_)
+        , submitted_increments_(EMPTY_SEQUENCE_RANGE)
+        , submitted_decrements_(EMPTY_SEQUENCE_RANGE)
         , metrics_(operation_grouper_)
     {
     }
@@ -150,7 +151,7 @@ namespace mantle {
         return to_action(phase_);
     }
 
-    void RegionController::start(Cycle cycle) {
+    void RegionController::start(const Cycle cycle) {
         if (state_ != State::STARTING) {
             assert(false);
             return;
@@ -336,17 +337,28 @@ namespace mantle {
                 break;
             }
             case Phase::RETIRE_BARRIER: {
-                // All submitted operations have been routed.
+                // All submitted operations have been routed. Flush and apply operations.
                 const bool force = (state_ == State::STOPPING) || (state_ == State::STOPPED);
                 operation_grouper_.flush(force);
 
-                // Apply flushed operations. Apply the increments first.
-                // Note sure if this is needed, but better safe than sorry.
-                apply_operations<OperationType::INCREMENT>(retired_increments_.span());
-                apply_operations<OperationType::DECREMENT>(retired_decrements_.span());
+                // Increments first to avoid premature death.
+                for (auto&& [object, delta]: operation_grouper_.increments()) {
+                    assert(delta >= 0);
+                    const auto delta_magnitude = static_cast<uint32_t>(+delta);
+                    if (!object->apply_increment(delta_magnitude)) {
+                        abort();
+                    }
+                }
 
-                retired_increments_.clear();
-                retired_decrements_.clear();
+                for (auto&& [object, delta]: operation_grouper_.decrements()) {
+                    assert(delta <= 0);
+                    const auto delta_magnitude = static_cast<uint32_t>(-delta);
+                    if (!object->apply_decrement(delta_magnitude)) {
+                        object_grouper_.write(*object);
+                    }
+                }
+
+                operation_grouper_.clear();
                 break;
             }
             case Phase::RETIRE: {
@@ -371,7 +383,7 @@ namespace mantle {
         cycle_ = next_cycle;
     }
 
-    size_t RegionController::route_operations(OperationType type, SequenceRange range) {
+    size_t RegionController::route_operations(const OperationType type, SequenceRange range) {
         size_t count = 0;
 
         for (Sequence sequence = range.head; sequence != range.tail; ++sequence) {
@@ -385,33 +397,18 @@ namespace mantle {
                 continue;
             }
 
-            RegionController& controller = *controllers_[object->region_id()];
-            bool flush = !controller.config_.operation_grouper_enabled;
-            controller.operation_grouper_.write(operation, flush);
+            const RegionId region_id = object->region_id();
+            if (UNLIKELY(region_id >= controllers_.size())) {
+                abort();
+            }
+
+            RegionController& controller = *controllers_[region_id];
+            controller.operation_grouper_.write(operation, true);
 
             count += 1;
         }
 
         return count;
-    }
-
-    template<OperationType type>
-    void RegionController::apply_operations(std::span<OperationBatch> operations) {
-        for (const OperationBatch& batch: operations) {
-            for (Operation operation: batch.operations) {
-                if (Object* object = operation.mutable_object()) {
-                    if (object->apply_operation<type>(operation)) {
-                        // The object is still alive.
-                    }
-                    else {
-                        object_grouper_.write(*object);
-                    }
-                }
-                else {
-                    // Ignore padding operations.
-                }
-            }
-        }
     }
 
     RegionControllerCensus synchronize(RegionControllerGroup& controllers) {

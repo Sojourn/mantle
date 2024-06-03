@@ -33,6 +33,8 @@ namespace mantle {
         constexpr auto operator<=>(const SequenceRange&) const noexcept = default;
     };
 
+    constexpr SequenceRange EMPTY_SEQUENCE_RANGE = { .head=0, .tail=0 };
+
     struct ObjectGroups {
         Object**         objects;
         size_t           object_count;

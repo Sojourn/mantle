@@ -80,32 +80,20 @@ namespace mantle {
         }
     }
 
-    bool Object::apply_increment_operation(Operation operation) {
-        assert(operation.object() == this);
-        assert(operation.type() == OperationType::INCREMENT);
-
-        info("[object:{}] apply increment - refs:{} exponent:{}", (const void*)this, reference_count_, operation.exponent());
-
-        reference_count_ += operation.magnitude();
+    bool Object::apply_increment(const uint32_t delta_magnitude) {
+        reference_count_ += delta_magnitude;
         return true;
     }
 
-    bool Object::apply_decrement_operation(Operation operation) {
-        assert(operation.object() == this);
-        assert(operation.type() == OperationType::DECREMENT);
-
-        info("[object:{}] apply decrement - refs:{} exponent:{}", (const void*)this, reference_count_, operation.exponent());
-
-        uint8_t magnitude = operation.magnitude();
-        if (reference_count_ < magnitude) {
+    bool Object::apply_decrement(const uint32_t delta_magnitude) {
+        if (reference_count_ < delta_magnitude) {
             reference_count_ = 0;
-            region_id_       = INVALID_REGION_ID;
+            region_id_ = INVALID_REGION_ID;
             return false;
         }
-        else   {
-            reference_count_ -= magnitude;
-            return true;
-        }
+
+        reference_count_ -= delta_magnitude;
+        return true;
     }
 
 }

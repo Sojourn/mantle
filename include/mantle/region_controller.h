@@ -199,9 +199,6 @@ namespace mantle {
 
         size_t route_operations(OperationType type, SequenceRange range);
 
-        template<OperationType type>
-        void apply_operations(std::span<OperationBatch> operations);
-
     private:
         RegionId               region_id_;
         RegionControllerGroup& controllers_;
@@ -212,11 +209,8 @@ namespace mantle {
         Phase                  phase_;
         Cycle                  cycle_;
 
-        SequenceRange          submitted_increments_;
+    SequenceRange          submitted_increments_;
         SequenceRange          submitted_decrements_;
-
-        OperationVectorWriter  retired_increments_;
-        OperationVectorWriter  retired_decrements_;
 
         OperationGrouper       operation_grouper_;
         ObjectGrouper          object_grouper_;

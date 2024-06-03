@@ -40,32 +40,16 @@ namespace mantle {
         void start_decrement_operation(uint8_t exponent);
         void start_decrement_operation(Operation operation);
 
-        // Apply an operation, adjusting our reference count.
-        // These return true if the object is still referenced after.
-        template<OperationType type>
-        bool apply_operation(Operation operation);
-        bool apply_increment_operation(Operation operation);
-        bool apply_decrement_operation(Operation operation);
+        // Update the reference count of this `Object` by the given magnitude.
+        // These functions return `true` if the reference count remains positive.
+        bool apply_increment(uint32_t delta_magnitude);
+        bool apply_decrement(uint32_t delta_magnitude);
 
     private:
         uint32_t    reference_count_;
         RegionId    region_id_;
         ObjectGroup group_;
     };
-
-    template<OperationType type>
-    bool Object::apply_operation(const Operation operation) {
-        assert(type == operation.type());
-
-        switch (type) {
-            case OperationType::INCREMENT: {
-                return apply_increment_operation(operation);
-            }
-            case OperationType::DECREMENT: {
-                return apply_decrement_operation(operation);
-            }
-        }
-    }
 
     // Ensure that we can pack a tag and pointer into an Operation.
     static_assert(alignof(Object) >= (1ull << Operation::TAG_BITS));

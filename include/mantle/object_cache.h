@@ -1,7 +1,6 @@
 #pragma once
 
 #include <utility>
-#include <compare>
 #include <optional>
 #include <cstdint>
 #include <cstddef>
@@ -38,13 +37,13 @@ namespace mantle {
 
         class Cursor {
         public:
-            explicit Cursor(size_t pos = 0)
+            explicit Cursor(const size_t pos = 0)
                 : pos_(pos)
             {
                 assert(pos_ <= CACHE_SIZE);
             }
 
-            explicit Cursor(size_t set, size_t way)
+            Cursor(const size_t set, const size_t way)
                 : Cursor((set * CACHE_WAYS) + way)
             {
                 assert(pos_ <= CACHE_SIZE);
@@ -56,10 +55,12 @@ namespace mantle {
                 return pos_ < CACHE_SIZE;
             }
 
+            [[nodiscard]]
             size_t set() const {
                 return pos_ / CACHE_WAYS;
             }
 
+            [[nodiscard]]
             size_t way() const {
                 return pos_ % CACHE_WAYS;
             }

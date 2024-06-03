@@ -1,14 +1,11 @@
 #pragma once
 
-#include <limits>
+#include <span>
+#include <vector>
 #include <cstdint>
 #include <cstddef>
-#include <cassert>
-#include <fmt/core.h>
-#include "mantle/object.h"
 #include "mantle/object_cache.h"
 #include "mantle/operation.h"
-#include "mantle/operation_writer.h"
 
 namespace mantle {
 
@@ -24,8 +21,8 @@ namespace mantle {
         size_t flushed_decrement_count = 0;
     };
 
-    // This class attempts to group operations acting on the same `Object`
-    // together to reduce the number of operations that need to be applied.
+    // This class attempts to reduce the number of random memory writes needed to update reference counts
+    // by combining operations on the same object into a single write.
     class OperationGrouper {
         static constexpr size_t CACHE_SIZE = 512;
         static constexpr size_t CACHE_WAYS = 8;
@@ -43,21 +40,29 @@ namespace mantle {
     public:
         using Metrics = OperationGrouperMetrics;
 
-        OperationGrouper(
-            OperationVectorWriter& increment_writer,
-            OperationVectorWriter& decrement_writer
-        );
+        OperationGrouper();
 
+        [[nodiscard]]
         const Metrics& metrics() const;
 
-        // Returns true if there are writes that have yet to be flushed.
+        // Returns true if there are operations missing from the increment/decrement collections
+        // because they have yet to be flushed.
+        [[nodiscard]]
         bool is_dirty() const;
 
-        OperationRange increments();
-        OperationRange decrements();
+        [[nodiscard]]
+        std::span<std::pair<Object*, int64_t>> increments();
+
+        [[nodiscard]]
+        std::span<std::pair<Object*, int64_t>> decrements();
 
         void write(Operation operation, bool flush = false);
         void flush(bool force = false);
+
+        // Clear increment and decrement collections.
+        void clear();
+
+        // Clear increment and decrement collections, in addition to cached operations.
         void reset();
 
     private:
@@ -71,11 +76,11 @@ namespace mantle {
         void note_operation_flushed(Operation operation);
 
     private:
-        OperationVectorWriter& increment_writer_;
-        OperationVectorWriter& decrement_writer_;
-        size_t                 cache_size_;
-        Metrics                metrics_;
-        Cache                  cache_;
+        std::vector<std::pair<Object*, int64_t>> increments_;
+        std::vector<std::pair<Object*, int64_t>> decrements_;
+        size_t                                   cache_size_;
+        Metrics                                  metrics_;
+        Cache                                    cache_;
     };
 
 }
