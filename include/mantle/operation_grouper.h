@@ -56,13 +56,19 @@ namespace mantle {
         [[nodiscard]]
         std::span<std::pair<Object*, int64_t>> decrements();
 
+        // Write an operation to the cache. If flush is true, the operation is immediately written to the
+        // increment or decrement collection. Otherwise, the operation is grouped with other operations.
         void write(Operation operation, bool flush = false);
+
+        // Flush operations from the cache to the increment and decrement collections.
+        // The force parameter will cause all operations to be flushed regardless of the hit count,
+        // which is useful during shutdown.
         void flush(bool force = false);
 
-        // Clear increment and decrement collections.
+        // Clear the increment and decrement collections.
         void clear();
 
-        // Clear increment and decrement collections, in addition to cached operations.
+        // Equivelent to calling flush(true) and then clear().
         void reset();
 
     private:
