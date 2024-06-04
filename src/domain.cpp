@@ -50,7 +50,7 @@ namespace mantle {
         running_ = true;
 
         while (running_) {
-            bool non_blocking = false;
+            constexpr bool non_blocking = false;
             for (void* user_data: selector_.poll(non_blocking)) {
                 handle_event(user_data);
             }
@@ -61,7 +61,7 @@ namespace mantle {
             while (true) {
                 update_controllers(census);
 
-                for (RegionId region_id = 0; region_id < controllers_.size(); ++region_id) {
+                for (RegionId region_id = 0; size_t{region_id} < controllers_.size(); ++region_id) {
                     Region& region = *regions_[region_id];
                     RegionController& controller = *controllers_[region_id];
 
@@ -84,17 +84,16 @@ namespace mantle {
     }
 
     void Domain::handle_event(void* user_data) {
+        constexpr bool non_blocking = true;
+
         if (user_data == &doorbell_) {
             // We'll add a controller for the new region later.
             // Re-arm the doorbell now that we've awoken.
-            bool non_blocking = true;
             doorbell_.poll(non_blocking);
         }
         else {
             Region& region = *static_cast<Region*>(user_data);
             RegionController& controller = *controllers_[region.id()];
-
-            bool non_blocking = true;
             for (const Message& message: region.domain_endpoint().receive_messages(non_blocking)) {
                 debug("[region_controller:{}] received {}", region.id(), to_string(message.type));
                 controller.receive_message(message);
@@ -106,7 +105,7 @@ namespace mantle {
         // Check if there are controllers that need to be started or stopped.
         // This is safe to do while there isn't an active cycle.
         if (controllers_.empty() || census.any(RegionControllerPhase::START)) {
-            std::scoped_lock<std::mutex> lock(regions_mutex_);
+            std::scoped_lock lock(regions_mutex_);
 
             if (controllers_.size() < regions_.size()) {
                 start_controllers(census, lock);
@@ -159,9 +158,9 @@ namespace mantle {
     }
 
     RegionId Domain::bind(Region& region) {
-        std::scoped_lock<std::mutex> lock(regions_mutex_);
+        std::scoped_lock lock(regions_mutex_);
 
-        RegionId region_id = regions_.size();
+        const RegionId region_id = regions_.size();
         regions_.push_back(&region);
         doorbell_.ring();
 

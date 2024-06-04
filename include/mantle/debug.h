@@ -11,7 +11,7 @@
 
 #define MANTLE_INFO  0
 #define MANTLE_DEBUG 0
-#define MANTLE_AUDIT 1
+#define MANTLE_AUDIT 0
 
 namespace mantle {
 

@@ -119,7 +119,7 @@ namespace mantle {
         , cycle_(0)
         , submitted_increments_(EMPTY_SEQUENCE_RANGE)
         , submitted_decrements_(EMPTY_SEQUENCE_RANGE)
-        , metrics_(operation_grouper_)
+        , metrics_(operation_grouper_, object_grouper_)
     {
     }
 

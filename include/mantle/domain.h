@@ -2,11 +2,9 @@
 
 #include <mutex>
 #include <thread>
-#include <memory>
 #include <vector>
 #include "mantle/types.h"
 #include "mantle/config.h"
-#include "mantle/message.h"
 #include "mantle/doorbell.h"
 #include "mantle/selector.h"
 #include "mantle/region.h"
@@ -20,14 +18,15 @@ namespace mantle {
         friend class Region;
 
     public:
-        Domain(const Config& config = Config());
-        Domain(Domain&&) = delete;
-        Domain(const Domain&) = delete;
+        explicit Domain(const Config& config = Config());
         ~Domain();
 
+        Domain(Domain&&) = delete;
+        Domain(const Domain&) = delete;
         Domain& operator=(Domain&&) = delete;
         Domain& operator=(const Domain&) = delete;
 
+        [[nodiscard]]
         const Config& config() const;
 
     private:

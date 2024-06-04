@@ -146,7 +146,8 @@ namespace mantle {
         size_t decrement_count;
 
         RegionControllerMetrics(
-            const OperationGrouper& operation_grouper
+            const OperationGrouper& operation_grouper,
+            const ObjectGrouper& object_grouper
         )
             : operation_grouper(operation_grouper.metrics())
             , increment_count(0)

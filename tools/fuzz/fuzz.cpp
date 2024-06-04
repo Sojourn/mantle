@@ -336,19 +336,15 @@ int main(int argc, char** argv) {
         settings.cycle_count = 1000;
         settings.worker_thread_count = 6;
         settings.worker_object_count = 100;
-        settings.action_type_ratios[static_cast<size_t>(ActionType::STEP)] = 4;
+        settings.action_type_ratios[static_cast<size_t>(ActionType::STEP)] = 1;
         settings.action_type_ratios[static_cast<size_t>(ActionType::MAKE)] = 2;
-        settings.action_type_ratios[static_cast<size_t>(ActionType::POKE)] = 1;
+        settings.action_type_ratios[static_cast<size_t>(ActionType::POKE)] = 2;
         settings.action_type_ratios[static_cast<size_t>(ActionType::DROP)] = 3;
         settings.action_type_ratios[static_cast<size_t>(ActionType::RECV)] = 2;
         settings.action_type_ratios[static_cast<size_t>(ActionType::SEND)] = 1;
 
         Driver driver(settings);
         driver.run();
-
-        // if ((i % 100) == 0) {
-            std::cout << fmt::format("{} / {}", i, rounds) << std::endl;
-        // }
 
         for (RegionId region_id = 0; region_id < settings.worker_thread_count; ++region_id) {
             const WorkerThread::Metrics& metrics = driver.worker_thread(region_id).metrics();
