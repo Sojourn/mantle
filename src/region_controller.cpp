@@ -350,6 +350,7 @@ namespace mantle {
                     }
                 }
 
+                // Apply decrements and group dead objects for finalization.
                 for (auto&& [object, delta]: operation_grouper_.decrements()) {
                     assert(delta <= 0);
                     const auto delta_magnitude = static_cast<uint32_t>(-delta);

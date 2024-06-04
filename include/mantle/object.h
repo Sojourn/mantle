@@ -9,17 +9,22 @@ namespace mantle {
 
     // This alignment gives us 4 tag bits to use in the encoding of an operation.
     class alignas(16) Object {
+    public:
+        explicit Object(ObjectGroup group = 0);
+        ~Object();
+
         Object(Object&&) = delete;
         Object(const Object&) = delete;
         Object& operator=(Object&&) = delete;
         Object& operator=(const Object&) = delete;
 
-    public:
-        Object(ObjectGroup group = 0);
-        ~Object();
-
+        [[nodiscard]]
         bool is_managed() const;
+
+        [[nodiscard]]
         RegionId region_id() const;
+
+        [[nodiscard]]
         ObjectGroup group() const;
 
     private:

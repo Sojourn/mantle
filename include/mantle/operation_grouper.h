@@ -22,7 +22,13 @@ namespace mantle {
     };
 
     // This class attempts to reduce the number of random memory writes needed to update reference counts
-    // by combining operations on the same object into a single write.
+    // by combining operations on the same object into a single write. Grouped operations are not
+    // imediately applied.
+    //
+    // This has two major benefits:
+    //   1. Increments can be applied before decrements.
+    //   2. The prefetcher should have an easier time predicting what will be touched next.
+    //
     class OperationGrouper {
         static constexpr size_t CACHE_SIZE = 512;
         static constexpr size_t CACHE_WAYS = 8;

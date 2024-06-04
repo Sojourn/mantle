@@ -26,8 +26,9 @@ namespace mantle {
 
     void OperationGrouper::write(const Operation operation, const bool flush) {
         Object* object = operation.mutable_object();
+
+        // Ignore no-ops.
         if (UNLIKELY(!object)) {
-            assert(false); // Unexpected, but not fatal.
             return;
         }
 

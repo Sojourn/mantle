@@ -20,8 +20,8 @@ namespace mantle {
 
         stream << fmt::format(
             "Operation(object:{}, value:{})"
-            , (const void*)mutable_operation.object()
-            , (int)mutable_operation.value()
+            , static_cast<const void*>(mutable_operation.object())
+            , static_cast<int>(mutable_operation.value())
         );
 
         return stream;
