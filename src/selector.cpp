@@ -2,7 +2,6 @@
 #include <stdexcept>
 #include <cstring>
 #include <cassert>
-#include <fmt/core.h>
 
 #include <unistd.h>
 #include <poll.h>
@@ -14,7 +13,7 @@ namespace mantle {
          : epoll_fd_(epoll_create1(EPOLL_CLOEXEC))
     {
         if (epoll_fd_ < 0) {
-            throw std::runtime_error(fmt::format("Failed to create epoll file descriptor - {}", strerror(errno)));
+            throw std::runtime_error("Failed to create epoll file descriptor");
         }
     }
 
@@ -33,7 +32,7 @@ namespace mantle {
         } while ((event_count < 0) && (errno == EINTR));
 
         if (event_count < 0) {
-            throw std::runtime_error(fmt::format("Failed to wait for epoll events - {}", strerror(errno)));
+            throw std::runtime_error("Failed to wait for epoll events");
         }
 
         for (int i = 0; i < event_count; ++i) {
@@ -60,7 +59,7 @@ namespace mantle {
         } while ((result < 0) && (errno == EINTR));
 
         if (result < 0) {
-            throw std::runtime_error(fmt::format("Failed to add epoll watch - {}", strerror(errno)));
+            throw std::runtime_error("Failed to add epoll watch");
         }
     }
 
@@ -76,7 +75,7 @@ namespace mantle {
         } while ((result < 0) && (errno == EINTR));
 
         if (result < 0) {
-            throw std::runtime_error(fmt::format("Failed to modify epoll watch - {}", strerror(errno)));
+            throw std::runtime_error("Failed to modify epoll watch");
         }
     }
 
@@ -87,7 +86,7 @@ namespace mantle {
         } while ((result < 0) && (errno == EINTR));
 
         if (result < 0) {
-            throw std::runtime_error(fmt::format("Failed to delete epoll watch - {}", strerror(errno)));
+            throw std::runtime_error("Failed to delete epoll watch");
         }
     }
 
@@ -103,7 +102,7 @@ namespace mantle {
         } while ((result < 0) && (errno == EINTR));
 
         if (result < 0) {
-            throw std::runtime_error(fmt::format("Failed to poll file descriptor - {}", strerror(errno)));
+            throw std::runtime_error("Failed to poll file descriptor for readability");
         }
 
         assert(event.revents & POLLIN);

@@ -8,9 +8,17 @@
 
 namespace mantle {
 
+    struct ObjectGrouperMetrics {
+        size_t      object_count = 0;
+        ObjectGroup group_min = std::numeric_limits<ObjectGroup>::max();
+        ObjectGroup group_max = std::numeric_limits<ObjectGroup>::min();
+    };
+
     // This class groups objects for more efficient finalization.
     class ObjectGrouper {
     public:
+        using Metrics = ObjectGrouperMetrics;
+
         ObjectGrouper()
             : group_min_(std::numeric_limits<ObjectGroup>::max())
             , group_max_(std::numeric_limits<ObjectGroup>::min())
@@ -20,18 +28,28 @@ namespace mantle {
             }
         }
 
+        [[nodiscard]]
+        const Metrics& metrics() const {
+            return metrics_;
+        }
+
         void write(Object& object) {
             const ObjectGroup group = object.group();
-            input_.push_back(&object);
 
             group_buckets_[group] += 1;
             group_min_ = std::min(group, group_min_);
             group_max_ = std::max(group, group_max_);
+
+            input_.push_back(&object);
         }
 
         [[nodiscard]]
         ObjectGroups flush() {
             ObjectGroups groups = {};
+
+            metrics_.object_count += input_.size();
+            metrics_.group_min = std::min(group_min_, metrics_.group_min);
+            metrics_.group_max = std::max(group_max_, metrics_.group_max);
 
             if constexpr (ENABLE_OBJECT_GROUPING) {
                 // Reset working memory.
@@ -83,6 +101,7 @@ namespace mantle {
                 };
 
 #ifdef MANTLE_AUDIT
+                // Sanity check group membership.
                 for (ObjectGroup group = group_min_; group <= group_max_; ++group) {
                     const std::span<Object*> group_members = groups.group_members(group);
                     assert(group_members.size() <= groups.object_count);
@@ -129,6 +148,8 @@ namespace mantle {
         std::vector<Object*> output_;
         GroupOffsetArray     group_offsets_;
         ObjectGroupMask      group_mask_;
+
+        Metrics              metrics_;
     };
 
 }

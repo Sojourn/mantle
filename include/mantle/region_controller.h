@@ -142,6 +142,7 @@ namespace mantle {
 
     struct RegionControllerMetrics {
         const OperationGrouper::Metrics& operation_grouper;
+        const ObjectGrouper::Metrics& object_grouper;
         size_t increment_count;
         size_t decrement_count;
 
@@ -150,6 +151,7 @@ namespace mantle {
             const ObjectGrouper& object_grouper
         )
             : operation_grouper(operation_grouper.metrics())
+            , object_grouper(object_grouper.metrics())
             , increment_count(0)
             , decrement_count(0)
         {

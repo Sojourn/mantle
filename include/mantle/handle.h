@@ -2,10 +2,10 @@
 
 #include <utility>
 #include <type_traits>
-#include "config.h"
-#include "region.h"
-#include "object.h"
-#include "operation.h"
+#include "mantle/config.h"
+#include "mantle/region.h"
+#include "mantle/object.h"
+#include "mantle/operation.h"
 
 namespace mantle {
 
