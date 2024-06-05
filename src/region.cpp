@@ -33,6 +33,7 @@ namespace mantle {
         Counter& counter_;
     };
 
+    MANTLE_SOURCE_INLINE
     Region::Region(Domain& domain, ObjectFinalizer& finalizer)
         : domain_(domain)
         , id_(std::numeric_limits<RegionId>::max())
@@ -64,6 +65,7 @@ namespace mantle {
         }
     }
 
+    MANTLE_SOURCE_INLINE
     Region::~Region() {
         stop();
 
@@ -71,26 +73,32 @@ namespace mantle {
         region_instance = nullptr;
     }
 
+    MANTLE_SOURCE_INLINE
     RegionId Region::id() const {
         return id_;
     }
 
+    MANTLE_SOURCE_INLINE
     auto Region::state() const -> State {
         return state_;
     }
 
+    MANTLE_SOURCE_INLINE
     auto Region::phase() const -> Phase {
         return phase_;
     }
 
+    MANTLE_SOURCE_INLINE
     auto Region::cycle() const -> Cycle {
         return cycle_;
     }
 
+    MANTLE_SOURCE_INLINE
     int Region::file_descriptor() {
         return connection_.client_endpoint().file_descriptor();
     }
 
+    MANTLE_SOURCE_INLINE
     void Region::stop() {
         if (state_ != State::RUNNING) {
             return;
@@ -105,6 +113,7 @@ namespace mantle {
         }
     }
 
+    MANTLE_SOURCE_INLINE
     void Region::step(const bool non_blocking) {
         // Start a new cycle if needed. We need to be in the initial phase, and have a reason to do it.
         bool start_cycle = true;
@@ -130,6 +139,7 @@ namespace mantle {
         finalize_garbage();
     }
 
+    MANTLE_SOURCE_INLINE
     void Region::flush_operation(Operation operation) {
         do {
             constexpr bool non_blocking = false;
@@ -137,18 +147,22 @@ namespace mantle {
         } while (!ledger_.write(operation));
     }
 
+    MANTLE_SOURCE_INLINE
     const OperationLedger& Region::ledger() const {
         return ledger_;
     }
 
+    MANTLE_SOURCE_INLINE
     Endpoint& Region::domain_endpoint() {
         return connection_.server_endpoint();
     }
 
+    MANTLE_SOURCE_INLINE
     Endpoint& Region::region_endpoint() {
         return connection_.client_endpoint();
     }
 
+    MANTLE_SOURCE_INLINE
     void Region::handle_message(const Message& message) {
         assert(state_ != State::STOPPED);
 
@@ -210,6 +224,7 @@ namespace mantle {
         }
     }
 
+    MANTLE_SOURCE_INLINE
     void Region::transition(const State next_state) {
         if (state_ == next_state) {
             return;
@@ -219,6 +234,7 @@ namespace mantle {
         state_ = next_state;
     }
 
+    MANTLE_SOURCE_INLINE
     void Region::transition(const Phase next_phase) {
         if (phase_ == next_phase) {
             return;
@@ -228,6 +244,7 @@ namespace mantle {
         phase_ = next_phase;
     }
 
+    MANTLE_SOURCE_INLINE
     void Region::transition(const Cycle next_cycle) {
         if (cycle_ == next_cycle) {
             return;
@@ -237,6 +254,7 @@ namespace mantle {
         cycle_ = next_cycle;
     }
 
+    MANTLE_SOURCE_INLINE
     void Region::finalize_garbage() {
         if (depth_) {
             // `Region::step` and `ObjectFinalizer::finalize` are co-recursive.
@@ -291,6 +309,7 @@ namespace mantle {
         }
     }
 
+    MANTLE_SOURCE_INLINE
     std::string_view to_string(RegionState state) {
         using namespace std::literals;
 
@@ -306,6 +325,7 @@ namespace mantle {
         abort();
     }
 
+    MANTLE_SOURCE_INLINE
     std::string_view to_string(RegionPhase phase) {
         using namespace std::literals;
 
@@ -321,10 +341,12 @@ namespace mantle {
         abort();
     }
 
+    MANTLE_SOURCE_INLINE
     bool has_region() {
         return region_instance != nullptr;
     }
 
+    MANTLE_SOURCE_INLINE
     Region& get_region() {
         assert(has_region());
 

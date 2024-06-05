@@ -1,14 +1,15 @@
 #include "mantle/selector.h"
+#include "mantle/config.h"
 #include <stdexcept>
 #include <cstring>
 #include <cassert>
-
 #include <unistd.h>
 #include <poll.h>
 #include <sys/epoll.h>
 
 namespace mantle {
 
+    MANTLE_SOURCE_INLINE
     Selector::Selector()
          : epoll_fd_(epoll_create1(EPOLL_CLOEXEC))
     {
@@ -17,12 +18,14 @@ namespace mantle {
         }
     }
 
+    MANTLE_SOURCE_INLINE
     Selector::~Selector() {
         int result = close(epoll_fd_);
         assert(result >= 0);
         epoll_fd_ = -1;
     }
 
+    MANTLE_SOURCE_INLINE
     std::span<void*> Selector::poll(bool non_blocking) {
         std::array<struct epoll_event, MAX_EVENT_COUNT> events;
 
@@ -47,6 +50,7 @@ namespace mantle {
         };
     }
 
+    MANTLE_SOURCE_INLINE
     void Selector::add_watch(int file_descriptor, void* user_data) {
         struct epoll_event event;
         memset(&event, 0, sizeof(event));
@@ -63,6 +67,7 @@ namespace mantle {
         }
     }
 
+    MANTLE_SOURCE_INLINE
     void Selector::modify_watch(int file_descriptor, void* user_data) {
         struct epoll_event event;
         memset(&event, 0, sizeof(event));
@@ -79,6 +84,7 @@ namespace mantle {
         }
     }
 
+    MANTLE_SOURCE_INLINE
     void Selector::delete_watch(int file_descriptor) {
         int result = 0;
         do {
@@ -90,6 +96,7 @@ namespace mantle {
         }
     }
 
+    MANTLE_SOURCE_INLINE
     void wait_for_readable(int file_descriptor) {
         struct pollfd event;
         memset(&event, 0, sizeof(event));

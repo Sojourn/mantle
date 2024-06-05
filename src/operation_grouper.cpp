@@ -3,27 +3,33 @@
 
 namespace mantle {
 
+    MANTLE_SOURCE_INLINE
     OperationGrouper::OperationGrouper()
         : cache_size_(0)
     {
     }
 
+    MANTLE_SOURCE_INLINE
     auto OperationGrouper::metrics() const -> const Metrics& {
         return metrics_;
     }
 
+    MANTLE_SOURCE_INLINE
     bool OperationGrouper::is_dirty() const {
         return cache_size_ > 0;
     }
 
+    MANTLE_SOURCE_INLINE
     std::span<std::pair<Object*, int64_t>> OperationGrouper::increments() {
         return increments_;
     }
 
+    MANTLE_SOURCE_INLINE
     std::span<std::pair<Object*, int64_t>> OperationGrouper::decrements() {
         return decrements_;
     }
 
+    MANTLE_SOURCE_INLINE
     void OperationGrouper::write(const Operation operation, const bool flush) {
         Object* object = operation.mutable_object();
 
@@ -93,17 +99,20 @@ namespace mantle {
         }
     }
 
+    MANTLE_SOURCE_INLINE
     void OperationGrouper::flush(const bool force) {
         for (CacheCursor cursor; cursor; cursor.advance()) {
             flush_group(cursor, force);
         }
     }
 
+    MANTLE_SOURCE_INLINE
     void OperationGrouper::clear() {
         increments_.clear();
         decrements_.clear();
     }
 
+    MANTLE_SOURCE_INLINE
     void OperationGrouper::reset() {
         for (CacheCursor cursor; cursor; cursor.advance()) {
             reset_group(cursor);
@@ -113,6 +122,7 @@ namespace mantle {
         clear();
     }
 
+    MANTLE_SOURCE_INLINE
     auto OperationGrouper::choose_way(Object* object) -> CacheCursor {
         // Find the set that maps to this object.
         std::pair<CacheCursor, CacheCursor> set = cache_.equal_range(object);
@@ -152,6 +162,7 @@ namespace mantle {
         }
     }
 
+    MANTLE_SOURCE_INLINE
     void OperationGrouper::flush_group(const CacheCursor cursor, const bool force) {
         auto&& [key, group] = cache_.load(cursor);
         if (!key) {
@@ -170,6 +181,7 @@ namespace mantle {
         reset_group(cursor);
     }
 
+    MANTLE_SOURCE_INLINE
     void OperationGrouper::reset_group(const CacheCursor cursor) {
         if (auto&& [key, _] = cache_.load(cursor); key) {
             assert(cache_size_ > 0);
@@ -178,6 +190,7 @@ namespace mantle {
         }
     }
 
+    MANTLE_SOURCE_INLINE
     void OperationGrouper::note_operation_written(const Operation operation) {
         metrics_.written_count += 1;
 
@@ -193,6 +206,7 @@ namespace mantle {
         }
     }
 
+    MANTLE_SOURCE_INLINE
     void OperationGrouper::note_operation_flushed(const Operation operation) {
         metrics_.flushed_count += 1;
 

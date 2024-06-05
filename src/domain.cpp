@@ -7,6 +7,7 @@
 
 namespace mantle {
 
+    MANTLE_SOURCE_INLINE
     Domain::Domain(const Config& config)
         : config_(config)
         , running_(false)
@@ -38,14 +39,17 @@ namespace mantle {
         init_future.get();
     }
 
+    MANTLE_SOURCE_INLINE
     Domain::~Domain() {
         thread_.join();
     }
 
+    MANTLE_SOURCE_INLINE
     const Config& Domain::config() const {
         return config_;
     }
 
+    MANTLE_SOURCE_INLINE
     void Domain::run() {
         running_ = true;
 
@@ -83,6 +87,7 @@ namespace mantle {
         }
     }
 
+    MANTLE_SOURCE_INLINE
     void Domain::handle_event(void* user_data) {
         constexpr bool non_blocking = true;
 
@@ -101,6 +106,7 @@ namespace mantle {
         }
     }
 
+    MANTLE_SOURCE_INLINE
     void Domain::update_controllers(const RegionControllerCensus& census) {
         // Check if there are controllers that need to be started or stopped.
         // This is safe to do while there isn't an active cycle.
@@ -124,6 +130,7 @@ namespace mantle {
         }
     }
 
+    MANTLE_SOURCE_INLINE
     void Domain::start_controllers(const RegionControllerCensus& census, std::scoped_lock<std::mutex>&) {
         for (RegionId region_id = controllers_.size(); region_id < regions_.size(); ++region_id) {
             Region& region = *regions_[region_id];
@@ -141,6 +148,7 @@ namespace mantle {
         }
     }
 
+    MANTLE_SOURCE_INLINE
     void Domain::stop_controllers(const RegionControllerCensus&, std::scoped_lock<std::mutex>&) {
         bool is_quiescent = true;
         for (auto&& controller: controllers_) {
@@ -157,6 +165,7 @@ namespace mantle {
         }
     }
 
+    MANTLE_SOURCE_INLINE
     RegionId Domain::bind(Region& region) {
         std::scoped_lock lock(regions_mutex_);
 

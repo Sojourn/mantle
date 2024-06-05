@@ -11,7 +11,7 @@
 
 namespace mantle {
 
-    static RegionControllerAction to_action(RegionControllerPhase phase) {
+    inline RegionControllerAction to_action(RegionControllerPhase phase) {
         switch (phase) {
 #define X(MANTLE_REGION_CONTROLLER_PHASE, MANTLE_REGION_CONTROLLER_ACTION)      \
             case RegionControllerPhase::MANTLE_REGION_CONTROLLER_PHASE: {       \
@@ -25,12 +25,13 @@ namespace mantle {
         abort(); // Unreachable.
     }
 
-    static RegionControllerPhase next(RegionControllerPhase phase) {
+    inline RegionControllerPhase next(RegionControllerPhase phase) {
         return static_cast<RegionControllerPhase>(
             (static_cast<size_t>(phase) + 1) % REGION_CONTROLLER_PHASE_COUNT
         );
     }
 
+    MANTLE_SOURCE_INLINE
     RegionControllerCensus::RegionControllerCensus()
         : count_(0)
         , min_cycle_(std::numeric_limits<Cycle>::max())
@@ -47,12 +48,14 @@ namespace mantle {
         }
     }
 
+    MANTLE_SOURCE_INLINE
     RegionControllerCensus::RegionControllerCensus(const RegionControllerGroup& controllers)
         : RegionControllerCensus()
     {
         add(controllers);
     }
 
+    MANTLE_SOURCE_INLINE
     void RegionControllerCensus::add(const RegionController& controller) {
         count_ += 1;
         min_cycle_ = std::min(controller.cycle(), min_cycle_);
@@ -62,48 +65,59 @@ namespace mantle {
         action_counts_[static_cast<size_t>(controller.action())] += 1;
     }
 
+    MANTLE_SOURCE_INLINE
     void RegionControllerCensus::add(const RegionControllerGroup& controllers) {
         for (const std::unique_ptr<RegionController>& controller: controllers) {
             add(*controller);
         }
     }
 
+    MANTLE_SOURCE_INLINE
     size_t RegionControllerCensus::count() const {
         return count_;
     }
 
+    MANTLE_SOURCE_INLINE
     auto RegionControllerCensus::min_cycle() const -> Cycle {
         return min_cycle_;
     }
 
+    MANTLE_SOURCE_INLINE
     auto RegionControllerCensus::max_cycle() const -> Cycle {
         return max_cycle_;
     }
 
+    MANTLE_SOURCE_INLINE
     bool RegionControllerCensus::any(State state) const {
         return state_counts_[static_cast<size_t>(state)] != 0;
     }
 
+    MANTLE_SOURCE_INLINE
     bool RegionControllerCensus::all(State state) const {
         return (count_ > 0) && state_counts_[static_cast<size_t>(state)] == count_;
     }
 
+    MANTLE_SOURCE_INLINE
     bool RegionControllerCensus::any(Phase phase) const {
         return phase_counts_[static_cast<size_t>(phase)] != 0;
     }
 
+    MANTLE_SOURCE_INLINE
     bool RegionControllerCensus::all(Phase phase) const {
         return (count_ > 0) && phase_counts_[static_cast<size_t>(phase)] == count_;
     }
 
+    MANTLE_SOURCE_INLINE
     bool RegionControllerCensus::any(Action action) const {
         return action_counts_[static_cast<size_t>(action)] != 0;
     }
 
+    MANTLE_SOURCE_INLINE
     bool RegionControllerCensus::all(Action action) const {
         return (count_ > 0) && action_counts_[static_cast<size_t>(action)] == count_;
     }
 
+    MANTLE_SOURCE_INLINE
     RegionController::RegionController(
         const RegionId region_id,
         RegionControllerGroup& controllers,
@@ -123,34 +137,42 @@ namespace mantle {
     {
     }
 
+    MANTLE_SOURCE_INLINE
     RegionId RegionController::region_id() const {
         return region_id_;
     }
 
+    MANTLE_SOURCE_INLINE
     auto RegionController::metrics() const -> const Metrics& {
         return metrics_;
     }
 
+    MANTLE_SOURCE_INLINE
     bool RegionController::is_quiescent() const {
         return !operation_grouper_.is_dirty();
     }
 
+    MANTLE_SOURCE_INLINE
     auto RegionController::state() const -> State {
         return state_;
     }
 
+    MANTLE_SOURCE_INLINE
     auto RegionController::phase() const -> Phase {
         return phase_;
     }
 
+    MANTLE_SOURCE_INLINE
     auto RegionController::cycle() const -> Cycle {
         return cycle_;
     }
 
+    MANTLE_SOURCE_INLINE
     auto RegionController::action() const -> Action {
         return to_action(phase_);
     }
 
+    MANTLE_SOURCE_INLINE
     void RegionController::start(const Cycle cycle) {
         if (state_ != State::STARTING) {
             assert(false);
@@ -161,6 +183,7 @@ namespace mantle {
         transition(State::RUNNING);
     }
 
+    MANTLE_SOURCE_INLINE
     void RegionController::stop() {
         if (state_ != State::STOPPING) {
             assert(false);
@@ -170,6 +193,7 @@ namespace mantle {
         transition(State::STOPPED);
     }
 
+    MANTLE_SOURCE_INLINE
     auto RegionController::send_message() -> std::optional<Message> {
         switch (phase_) {
             case Phase::START: {
@@ -225,6 +249,7 @@ namespace mantle {
         return std::nullopt;
     }
 
+    MANTLE_SOURCE_INLINE
     void RegionController::receive_message(const Message& message) {
         switch (phase_) {
             case Phase::START: {
@@ -277,6 +302,7 @@ namespace mantle {
         }
     }
 
+    MANTLE_SOURCE_INLINE
     void RegionController::synchronize(const RegionControllerCensus& census) {
         Phase next_phase = next(phase_);
         Action next_action = to_action(next_phase);
@@ -292,6 +318,7 @@ namespace mantle {
         }
     }
 
+    MANTLE_SOURCE_INLINE
     void RegionController::transition(State next_state) {
         if (state_ == next_state) {
             return;
@@ -301,6 +328,7 @@ namespace mantle {
         state_ = next_state;
     }
 
+    MANTLE_SOURCE_INLINE
     void RegionController::transition(Phase next_phase) {
         if (phase_ == next_phase) {
             return;
@@ -375,6 +403,7 @@ namespace mantle {
         phase_ = next_phase;
     }
 
+    MANTLE_SOURCE_INLINE
     void RegionController::transition(Cycle next_cycle) {
         if (cycle_ == next_cycle) {
             return;
@@ -384,6 +413,7 @@ namespace mantle {
         cycle_ = next_cycle;
     }
 
+    MANTLE_SOURCE_INLINE
     size_t RegionController::route_operations(const OperationType type, SequenceRange range) {
         size_t count = 0;
 
@@ -412,6 +442,7 @@ namespace mantle {
         return count;
     }
 
+    MANTLE_SOURCE_INLINE
     RegionControllerCensus synchronize(RegionControllerGroup& controllers) {
         RegionControllerCensus old_census;
         RegionControllerCensus new_census;
@@ -430,6 +461,7 @@ namespace mantle {
         return new_census;
     }
 
+    MANTLE_SOURCE_INLINE
     std::string_view to_string(RegionControllerState state) {
         using namespace std::literals;
 
@@ -445,6 +477,7 @@ namespace mantle {
         abort();
     }
 
+    MANTLE_SOURCE_INLINE
     std::string_view to_string(RegionControllerPhase phase) {
         using namespace std::literals;
 
@@ -460,6 +493,7 @@ namespace mantle {
         abort();
     }
 
+    MANTLE_SOURCE_INLINE
     std::string_view to_string(RegionControllerAction action) {
         using namespace std::literals;
 

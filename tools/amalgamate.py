@@ -214,6 +214,8 @@ def main():
 
         output.write_comment(f'{input_file.file_path}')
         for line in input_file.lines:
+            if 'MANTLE_SOURCE_INLINE' in line:
+                line = 'inline'
             output.write_line(line)
         output.write_empty_line()
 

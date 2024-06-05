@@ -1,14 +1,15 @@
 #include "mantle/doorbell.h"
 #include "mantle/selector.h"
+#include "mantle/config.h"
 #include <stdexcept>
 #include <cstring>
-#include <cassert>
 #include <fmt/core.h>
 #include <unistd.h>
 #include <sys/eventfd.h>
 
 namespace mantle {
 
+    MANTLE_SOURCE_INLINE
     Doorbell::Doorbell()
         : file_descriptor_(eventfd(0, EFD_CLOEXEC|EFD_NONBLOCK))
     {
@@ -17,14 +18,17 @@ namespace mantle {
         }
     }
 
+    MANTLE_SOURCE_INLINE
     Doorbell::~Doorbell() {
         close(file_descriptor_);
     }
 
+    MANTLE_SOURCE_INLINE
     int Doorbell::file_descriptor() {
         return file_descriptor_;
     }
 
+    MANTLE_SOURCE_INLINE
     void Doorbell::ring(uint64_t count) {
         ssize_t bytes_written = 0;
         do {
@@ -36,6 +40,7 @@ namespace mantle {
         }
     }
 
+    MANTLE_SOURCE_INLINE
     uint64_t Doorbell::poll(bool non_blocking) {
         if (!non_blocking) {
             wait_for_readable(file_descriptor_);

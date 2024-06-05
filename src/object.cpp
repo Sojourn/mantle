@@ -6,6 +6,7 @@
 
 namespace mantle {
 
+    MANTLE_SOURCE_INLINE
     Object::Object(ObjectGroup group)
         : reference_count_(0)
         , region_id_(INVALID_REGION_ID)
@@ -13,6 +14,7 @@ namespace mantle {
     {
     }
 
+    MANTLE_SOURCE_INLINE
     Object::~Object() {
 #if MANTLE_AUDIT
         bool halting = !has_region();
@@ -22,18 +24,22 @@ namespace mantle {
 #endif
     }
 
+    MANTLE_SOURCE_INLINE
     bool Object::is_managed() const {
         return region_id_ != INVALID_REGION_ID;
     }
 
+    MANTLE_SOURCE_INLINE
     RegionId Object::region_id() const {
         return region_id_;
     }
 
+    MANTLE_SOURCE_INLINE
     ObjectGroup Object::group() const {
         return group_;
     }
 
+    MANTLE_SOURCE_INLINE
     void Object::bind(RegionId region_id) {
         if (UNLIKELY(is_managed())) {
             abort(); // Don't bind an object more than once.
@@ -42,10 +48,12 @@ namespace mantle {
         region_id_ = region_id;
     }
 
+    MANTLE_SOURCE_INLINE
     void Object::start_increment_operation(uint8_t exponent) {
         start_increment_operation(make_increment_operation(this, exponent));
     }
 
+    MANTLE_SOURCE_INLINE
     void Object::start_increment_operation(Operation operation) {
         assert(operation.type() == OperationType::INCREMENT);
 
@@ -61,10 +69,12 @@ namespace mantle {
         }
     }
 
+    MANTLE_SOURCE_INLINE
     void Object::start_decrement_operation(uint8_t exponent) {
         start_decrement_operation(make_decrement_operation(this, exponent));
     }
 
+    MANTLE_SOURCE_INLINE
     void Object::start_decrement_operation(Operation operation) {
         assert(operation.type() == OperationType::DECREMENT);
 
@@ -80,11 +90,13 @@ namespace mantle {
         }
     }
 
+    MANTLE_SOURCE_INLINE
     bool Object::apply_increment(const uint32_t delta_magnitude) {
         reference_count_ += delta_magnitude;
         return true;
     }
 
+    MANTLE_SOURCE_INLINE
     bool Object::apply_decrement(const uint32_t delta_magnitude) {
         if (reference_count_ < delta_magnitude) {
             reference_count_ = 0;
