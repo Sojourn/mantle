@@ -10,7 +10,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <emmintrin.h>
-#include <fmt/core.h>
 #include <future>
 #include <iostream>
 #include <limits>
@@ -18,9 +17,11 @@
 #include <mutex>
 #include <new>
 #include <optional>
+#include <ostream>
 #include <poll.h>
 #include <sched.h>
 #include <span>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -2109,42 +2110,42 @@ namespace mantle {
     inline std::ostream& operator<<(std::ostream& stream, const Operation& operation) {
         Operation mutable_operation = operation;
 
-        stream << fmt::format(
-            "Operation(object:{}, value:{})"
-            , static_cast<const void*>(mutable_operation.object())
-            , static_cast<int>(mutable_operation.value())
-        );
+        std::stringstream ss;
+        ss << "Operation(object:" << static_cast<const void*>(mutable_operation.object());
+        ss << ", value:" << static_cast<int>(mutable_operation.value()) << ")";
 
+        stream << ss.str();
         return stream;
     }
 
     inline std::ostream& operator<<(std::ostream& stream, const OperationBatch& batch) {
-        stream << "OperationBatch(\n";
+        std::stringstream ss;
+        ss << "OperationBatch(\n";
+        ss << "  operations: [";
         for (Operation operation: batch.operations) {
             if (operation) {
-                stream << "  " << operation << ",\n";
+                ss << operation << ", ";
             }
         }
-        stream << ')';
+        ss << "]";
 
+        stream << ss.str();
         return stream;
     }
 
     inline std::ostream& operator<<(std::ostream& stream, const RegionControllerGroup& controllers) {
-        stream << "RegionControllerGroup(\n";
+        std::stringstream ss;
+        ss << "RegionControllerGroup(\n";
         for (RegionId region_id = 0; region_id < controllers.size(); ++region_id) {
             auto&& controller = *controllers[region_id];
 
-            stream << fmt::format(
-                "  RegionController(id:{}, phase:{}, action:{})",
-                region_id,
-                to_string(controller.phase()),
-                to_string(controller.action())
-            ) << '\n';
+            ss << "  RegionController(id:" << region_id;
+            ss << ", phase:" << to_string(controller.phase());
+            ss << ", action:" << to_string(controller.action()) << ")\n";
         }
+        ss << ")";
 
-        stream << ')';
-
+        stream << ss.str();
         return stream;
     }
 
