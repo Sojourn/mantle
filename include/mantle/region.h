@@ -117,6 +117,12 @@ namespace mantle {
         std::vector<Object*>        garbage_pile_;
 
         Connection                  connection_;
+
+    public:
+        static Region*& thread_local_instance() {
+            thread_local Region* instance = nullptr;
+            return instance;
+        }
     };
 
     inline void Region::start_increment_operation(Object&, Operation operation) {
@@ -145,8 +151,5 @@ namespace mantle {
 
     std::string_view to_string(RegionState state);
     std::string_view to_string(RegionPhase phase);
-
-    bool has_region();
-    Region& get_region();
 
 }

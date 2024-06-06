@@ -24,7 +24,10 @@ namespace mantle {
 
         // Bind an `Object` subclass to the local `Region` and return a managed `Handle` to it.
         static Handle bind(T& object) noexcept {
-            static_cast<Object&>(object).bind(get_region().id());
+            Region* region = Region::thread_local_instance();
+            assert(region);
+
+            static_cast<Object&>(object).bind(region->id());
 
             return Handle(make_decrement_operation(&object, Operation::EXPONENT_MIN));
         }

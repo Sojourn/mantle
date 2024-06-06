@@ -56,8 +56,8 @@ namespace mantle {
     void Object::start_increment_operation(Operation operation) {
         assert(operation.type() == OperationType::INCREMENT);
 
-        if (LIKELY(has_region())) {
-            get_region().start_increment_operation(*this, operation);
+        if (Region* region = Region::thread_local_instance(); LIKELY(region)) {
+            region->start_increment_operation(*this, operation);
         }
         else {
             // Leak.
@@ -73,8 +73,8 @@ namespace mantle {
     void Object::start_decrement_operation(Operation operation) {
         assert(operation.type() == OperationType::DECREMENT);
 
-        if (LIKELY(has_region())) {
-            get_region().start_decrement_operation(*this, operation);
+        if (Region* region = Region::thread_local_instance(); LIKELY(region)) {
+            region->start_decrement_operation(*this, operation);
         }
         else {
             // Leak.

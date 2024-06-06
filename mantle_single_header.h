@@ -1749,6 +1749,12 @@ namespace mantle {
         std::vector<Object*>        garbage_pile_;
 
         Connection                  connection_;
+
+    public:
+        static Region*& thread_local_instance() {
+            thread_local Region* instance = nullptr;
+            return instance;
+        }
     };
 
     inline void Region::start_increment_operation(Object&, Operation operation) {
@@ -1777,9 +1783,6 @@ namespace mantle {
 
     std::string_view to_string(RegionState state);
     std::string_view to_string(RegionPhase phase);
-
-    bool has_region();
-    Region& get_region();
 
 }
 
@@ -1887,7 +1890,10 @@ namespace mantle {
 
         // Bind an `Object` subclass to the local `Region` and return a managed `Handle` to it.
         static Handle bind(T& object) noexcept {
-            static_cast<Object&>(object).bind(get_region().id());
+            Region* region = Region::thread_local_instance();
+            assert(region);
+
+            static_cast<Object&>(object).bind(region->id());
 
             return Handle(make_decrement_operation(&object, Operation::EXPONENT_MIN));
         }
@@ -2230,11 +2236,12 @@ inline
     {
         // Register ourselves as the region on this thread.
         {
-            if (region_instance) {
+            Region*& instance = thread_local_instance();
+            if (instance) {
                 throw std::runtime_error("Cannot have more than one region per thread");
             }
 
-            region_instance = this;
+            instance = this;
         }
 
         // Synchronize with other regions until our cycle and phase match.
@@ -2253,8 +2260,7 @@ inline
     Region::~Region() {
         stop();
 
-        assert(region_instance == this);
-        region_instance = nullptr;
+        thread_local_instance() = nullptr;
     }
 
 inline
@@ -2523,18 +2529,6 @@ inline
         }
 
         abort();
-    }
-
-inline
-    bool has_region() {
-        return region_instance != nullptr;
-    }
-
-inline
-    Region& get_region() {
-        assert(has_region());
-
-        return *region_instance;
     }
 
 }
@@ -2821,15 +2815,11 @@ inline
     void Object::start_increment_operation(Operation operation) {
         assert(operation.type() == OperationType::INCREMENT);
 
-        info("[object:{}] start increment - exponent:{}", (const void*)this, operation.exponent());
-
-        if (LIKELY(has_region())) {
-            get_region().start_increment_operation(*this, operation);
+        if (Region* region = Region::thread_local_instance(); LIKELY(region)) {
+            region->start_increment_operation(*this, operation);
         }
         else {
-#if MANTLE_AUDIT
-            assert(false); // Leak?
-#endif
+            // Leak.
         }
     }
 
@@ -2842,15 +2832,11 @@ inline
     void Object::start_decrement_operation(Operation operation) {
         assert(operation.type() == OperationType::DECREMENT);
 
-        info("[object:{}] start decrement - exponent:{}", (const void*)this, operation.exponent());
-
-        if (LIKELY(has_region())) {
-            get_region().start_decrement_operation(*this, operation);
+        if (Region* region = Region::thread_local_instance(); LIKELY(region)) {
+            region->start_decrement_operation(*this, operation);
         }
         else {
-#if MANTLE_AUDIT
-            assert(false); // Leak?
-#endif
+            // Leak.
         }
     }
 

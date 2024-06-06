@@ -46,11 +46,12 @@ namespace mantle {
     {
         // Register ourselves as the region on this thread.
         {
-            if (region_instance) {
+            Region*& instance = thread_local_instance();
+            if (instance) {
                 throw std::runtime_error("Cannot have more than one region per thread");
             }
 
-            region_instance = this;
+            instance = this;
         }
 
         // Synchronize with other regions until our cycle and phase match.
@@ -69,8 +70,7 @@ namespace mantle {
     Region::~Region() {
         stop();
 
-        assert(region_instance == this);
-        region_instance = nullptr;
+        thread_local_instance() = nullptr;
     }
 
     MANTLE_SOURCE_INLINE
@@ -339,18 +339,6 @@ namespace mantle {
         }
 
         abort();
-    }
-
-    MANTLE_SOURCE_INLINE
-    bool has_region() {
-        return region_instance != nullptr;
-    }
-
-    MANTLE_SOURCE_INLINE
-    Region& get_region() {
-        assert(has_region());
-
-        return *region_instance;
     }
 
 }
