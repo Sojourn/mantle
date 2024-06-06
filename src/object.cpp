@@ -1,6 +1,5 @@
 #include "mantle/object.h"
 #include "mantle/region.h"
-#include "mantle/debug.h"
 #include "mantle/util.h"
 #include <cassert>
 
@@ -57,15 +56,11 @@ namespace mantle {
     void Object::start_increment_operation(Operation operation) {
         assert(operation.type() == OperationType::INCREMENT);
 
-        info("[object:{}] start increment - exponent:{}", (const void*)this, operation.exponent());
-
         if (LIKELY(has_region())) {
             get_region().start_increment_operation(*this, operation);
         }
         else {
-#if MANTLE_AUDIT
-            assert(false); // Leak?
-#endif
+            // Leak.
         }
     }
 
@@ -78,15 +73,11 @@ namespace mantle {
     void Object::start_decrement_operation(Operation operation) {
         assert(operation.type() == OperationType::DECREMENT);
 
-        info("[object:{}] start decrement - exponent:{}", (const void*)this, operation.exponent());
-
         if (LIKELY(has_region())) {
             get_region().start_decrement_operation(*this, operation);
         }
         else {
-#if MANTLE_AUDIT
-            assert(false); // Leak?
-#endif
+            // Leak.
         }
     }
 
