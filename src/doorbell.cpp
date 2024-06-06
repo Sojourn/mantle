@@ -3,7 +3,6 @@
 #include "mantle/config.h"
 #include <stdexcept>
 #include <cstring>
-#include <fmt/core.h>
 #include <unistd.h>
 #include <sys/eventfd.h>
 
@@ -14,7 +13,7 @@ namespace mantle {
         : file_descriptor_(eventfd(0, EFD_CLOEXEC|EFD_NONBLOCK))
     {
         if (file_descriptor_ < 0) {
-            throw std::runtime_error(fmt::format("Failed to create doorbell eventfd - {}", strerror(errno)));
+            throw std::runtime_error("Failed to create doorbell eventfd");
         }
     }
 

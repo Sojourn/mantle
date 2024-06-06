@@ -197,7 +197,7 @@ namespace mantle {
         }
 
         if (sched_setaffinity(0, sizeof(set), &set) < 0) {
-            throw std::runtime_error(fmt::format("Failed to set cpu affinity - {}", strerror(errno)));
+            throw std::runtime_error("Failed to set cpu affinity");
         }
 
         std::this_thread::yield();
@@ -3392,7 +3392,7 @@ inline
         : file_descriptor_(eventfd(0, EFD_CLOEXEC|EFD_NONBLOCK))
     {
         if (file_descriptor_ < 0) {
-            throw std::runtime_error(fmt::format("Failed to create doorbell eventfd - {}", strerror(errno)));
+            throw std::runtime_error("Failed to create doorbell eventfd");
         }
     }
 

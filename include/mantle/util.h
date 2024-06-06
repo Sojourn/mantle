@@ -1,14 +1,11 @@
 #pragma once
 
 #include <span>
-#include <array>
 #include <thread>
 #include <stdexcept>
 #include <cstring>
-#include <cstdint>
 #include <cstddef>
 #include <cassert>
-#include <fmt/core.h>
 #include <sched.h>
 
 #ifdef __GNUC__
@@ -61,7 +58,7 @@ namespace mantle {
         }
 
         if (sched_setaffinity(0, sizeof(set), &set) < 0) {
-            throw std::runtime_error(fmt::format("Failed to set cpu affinity - {}", strerror(errno)));
+            throw std::runtime_error("Failed to set cpu affinity");
         }
 
         std::this_thread::yield();

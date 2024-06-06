@@ -1,12 +1,10 @@
 #pragma once
 
-#include <iostream>
 #include <string>
 #include <fmt/core.h>
 #include "mantle/types.h"
 #include "mantle/operation.h"
 #include "mantle/domain.h"
-#include "mantle/region.h"
 #include "mantle/region_controller.h"
 
 #define MANTLE_INFO  0
