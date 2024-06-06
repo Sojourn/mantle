@@ -38,10 +38,6 @@
 
 // TODO: Use macros for the global variables instead of global variables.
 
-inline
-inline
-#endif
-
 namespace mantle {
 
     // This flag enables weighted reference counting in handles.

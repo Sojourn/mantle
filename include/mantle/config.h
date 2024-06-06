@@ -2,14 +2,9 @@
 
 #include <span>
 #include <optional>
-#include <cstdint>
 #include <cstddef>
 
 // TODO: Use macros for the global variables instead of global variables.
-
-#ifndef MANTLE_SOURCE_INLINE
-#define MANTLE_SOURCE_INLINE
-#endif
 
 namespace mantle {
 

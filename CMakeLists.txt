@@ -5,6 +5,8 @@ add_compile_options(-Wall -Wextra -pedantic -Werror)
 add_compile_options(-Wno-attributes) # suppress attribute ignored warnings
 add_compile_options(-g) # add debug information
 
+add_definitions(-DMANTLE_SOURCE_INLINE=) # single-header library compatibility
+
 add_subdirectory(src)
 add_subdirectory(tools)
 add_subdirectory(unit_test)
