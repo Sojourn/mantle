@@ -10,11 +10,11 @@
 
 #ifdef __GNUC__
 #  define MANTLE_HOT __attribute__((hot, always_inline)) inline
+#  define MANTLE_COLD __attribute__((noinline))
 #else
 #  define MANTLE_HOT inline
+#  define MANTLE_COLD inline
 #endif
-
-#define MANTLE_COLD
 
 #ifndef LIKELY 
 #  define LIKELY(x)   __builtin_expect(!!(x), 1)
