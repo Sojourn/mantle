@@ -7,10 +7,16 @@
 #include <cstddef>
 #include <cassert>
 #include <sched.h>
+#include <unistd.h>
+#include <sys/syscall.h>
 
 #ifdef __GNUC__
 #  define MANTLE_HOT __attribute__((hot, always_inline)) inline
-#  define MANTLE_COLD __attribute__((noinline))
+#  ifdef MANTLE_SINGLE_HEADER
+#    define MANTLE_COLD
+#  else
+#    define MANTLE_COLD __attribute__((noinline))
+#  endif
 #else
 #  define MANTLE_HOT inline
 #  define MANTLE_COLD inline
@@ -62,6 +68,10 @@ namespace mantle {
         }
 
         std::this_thread::yield();
+    }
+
+    inline pid_t get_tid() {
+        return syscall(SYS_gettid);
     }
 
 }

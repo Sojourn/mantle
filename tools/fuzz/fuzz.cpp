@@ -1,4 +1,5 @@
 #include <iostream>
+#include <fmt/core.h>
 #include <cstdlib>
 #include <cassert>
 #include "mantle/mantle.h"
@@ -77,7 +78,7 @@ void TestObjectAllocator::finalize(ObjectGroup, std::span<Object*> objects) noex
         }
 
         {
-            Region& region = get_region();
+            Region& region = *Region::thread_local_instance();
 
             Action action = {
                 .type             = ActionType::REAP,

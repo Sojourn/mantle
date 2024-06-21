@@ -197,6 +197,8 @@ def main():
     output = OutputBuffer()
     output.write_pragma_once()
     output.write_empty_line()
+    output.write_line(f'#define MANTLE_SINGLE_HEADER')
+    output.write_empty_line()
 
     # Write a block of external include macros, sorted by file path.
     external_includes: list[Path] = []
