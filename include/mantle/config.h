@@ -15,9 +15,10 @@ namespace mantle {
     // The number of messages that can be queued between `Domain` and `Region` endpoints.
     constexpr size_t STREAM_CAPACITY = 4096;
 
-
     // FIXME: Some architectures have cache lines that are 128 bytes. We should detect this.
     constexpr size_t CACHE_LINE_SIZE = 64;
+
+    constexpr size_t WRITE_BARRIER_CAPACITY = 128 * 1024;
 
     struct Config {
         std::optional<std::span<size_t>> domain_cpu_affinity;

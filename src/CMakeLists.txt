@@ -4,9 +4,11 @@ set(MANTLE_SOURCE_FILES
     region.cpp
     region_controller.cpp
     object.cpp
+    ledger.cpp
     operation_grouper.cpp
     doorbell.cpp
     selector.cpp
+    page_fault_handler.cpp
 )
 
 set(MANTLE_HEADER_FILES
