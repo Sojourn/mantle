@@ -16,25 +16,26 @@ int main(int argc, char** argv) {
     std::atomic_bool done = false;
 
     std::thread thread([&]() {
-        Ledger ledger(write_barrier_manager);
+        for (size_t k = 0; k < 2001; k += 1) {
+            for (size_t j = 0; j < 2001; j += 7) {
+                Ledger ledger(write_barrier_manager);
+                Object object;
 
-        Object object;
+                WriteBarrier& barrier = ledger.decrement_barrier();
+                for (size_t i = 0; i < k; ++i) {
+                    decrement_ref_cnt(object);
+                }
+                ledger.step();
+                ledger.step();
 
-        WriteBarrier& barrier = ledger.decrement_barrier();
-        for (size_t i = 0; i < 1024 * 1024; ++i) {
-            decrement_ref_cnt(object);
-        }
-        ledger.step();
-        ledger.step();
-        for (size_t i = 0; i < 1024 * 1024; ++i) {
-            increment_ref_cnt(object);
-        }
+                for (size_t i = 0; i < j; ++i) {
+                    increment_ref_cnt(object);
+                }
+                ledger.step();
 
-        while (!barrier.is_empty()) {
-            const WriteBarrierSegment& segment = *barrier.pop_back();
-            std::cout << "inc_cnt: " << segment.increment_count << std::endl;
-            std::cout << "dec_cnt: " << segment.decrement_count << std::endl;
-            std::cout << std::endl;
+                assert(barrier.increment_count() == j);
+                assert(barrier.decrement_count() == k);
+            }
         }
 
         done = true;

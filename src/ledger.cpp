@@ -163,6 +163,26 @@ namespace mantle {
         }
     }
 
+    size_t WriteBarrier::increment_count() const {
+        size_t count = 0;
+
+        for (const WriteBarrierSegment* segment = stack_; segment; segment = segment->prev) {
+            count += segment->increment_count;
+        }
+
+        return count;
+    }
+
+    size_t WriteBarrier::decrement_count() const {
+        size_t count = 0;
+
+        for (const WriteBarrierSegment* segment = stack_; segment; segment = segment->prev) {
+            count += segment->decrement_count;
+        }
+
+        return count;
+    }
+
     WriteBarrierManager::WriteBarrierManager() {
         // TODO: Size the segment storage/pool based on the number of threads.
     }

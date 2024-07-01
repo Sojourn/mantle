@@ -31,16 +31,30 @@ TEST_CASE("Ledger") {
     std::thread thread([&]() {
         Ledger ledger(write_barrier_manager);
 
-        increment_ref_cnt(object);
-        decrement_ref_cnt(object);
+        SECTION("Empty write barriers") {
+            WriteBarrier& inc_barrier = ledger.increment_barrier();
+            WriteBarrier& dec_barrier = ledger.decrement_barrier();
 
-        WriteBarrier& inc_barrier = ledger.increment_barrier();
-        WriteBarrier& dec_barrier = ledger.decrement_barrier();
+            ledger.step();
 
-        ledger.step();
+            CHECK(counts(inc_barrier).increment_count == 0);
+            CHECK(counts(dec_barrier).decrement_count == 0);
+        }
 
-        CHECK(counts(inc_barrier).increment_count == 1);
-        CHECK(counts(dec_barrier).decrement_count == 1);
+        SECTION("Partially full write barriers") {
+            increment_ref_cnt(object);
+            increment_ref_cnt(object);
+            decrement_ref_cnt(object);
+            decrement_ref_cnt(object);
+
+            WriteBarrier& inc_barrier = ledger.increment_barrier();
+            WriteBarrier& dec_barrier = ledger.decrement_barrier();
+
+            ledger.step();
+
+            CHECK(counts(inc_barrier).increment_count == 2);
+            CHECK(counts(dec_barrier).decrement_count == 2);
+        }
 
         done = true;
     });

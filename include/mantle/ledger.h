@@ -103,6 +103,14 @@ namespace mantle {
 
         void commit(bool pending_write);
 
+        // NOTE: This is O(N).
+        [[nodiscard]]
+        size_t increment_count() const;
+
+        // NOTE: This is O(N).
+        [[nodiscard]]
+        size_t decrement_count() const;
+
     private:
         Ledger&              ledger_;
         size_t               phase_shift_;
