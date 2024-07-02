@@ -15,9 +15,9 @@
 
 #define WRITE_BARRIER_PHASES(X) \
     X(STORE_DECREMENTS)         \
-    X(WAIT)                     \
+    X(DELAY)                    \
     X(STORE_INCREMENTS)         \
-    X(SYNC)                     \
+    X(APPLY)                    \
 
 namespace mantle {
 

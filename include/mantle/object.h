@@ -29,6 +29,8 @@ namespace mantle {
 
     private:
         template<typename T>
+        friend class Ref;
+        template<typename T>
         friend class Handle;
         friend class Region;
         friend class RegionController;

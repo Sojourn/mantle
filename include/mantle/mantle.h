@@ -6,3 +6,6 @@
 #include "mantle/object.h"
 #include "mantle/object_finalizer.h"
 #include "mantle/handle.h"
+
+#include "mantle/ledger.h"
+#include "mantle/ref.h"
