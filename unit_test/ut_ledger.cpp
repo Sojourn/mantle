@@ -32,14 +32,29 @@ TEST_CASE("Ledger") {
     std::thread thread([&]() {
         Ledger ledger(write_barrier_manager);
 
-        SECTION("Empty write barriers") {
-            WriteBarrier& inc_barrier = ledger.increment_barrier();
-            WriteBarrier& dec_barrier = ledger.decrement_barrier();
+        SECTION("Emptiness") {
+            CHECK(ledger.is_empty());
+
+            decrement_ref_cnt(object);
+            CHECK(!ledger.is_empty());
+            CHECK(ledger.increment_barrier().is_empty());
+            CHECK(!ledger.decrement_barrier().is_empty());
 
             ledger.step();
+            CHECK(!ledger.is_empty());
+            CHECK(ledger.increment_barrier().is_empty());
+            CHECK(ledger.decrement_barrier().is_empty());
 
-            CHECK(counts(inc_barrier).increment_count == 0);
-            CHECK(counts(dec_barrier).decrement_count == 0);
+            increment_ref_cnt(object);
+            CHECK(!ledger.is_empty());
+            CHECK(!ledger.increment_barrier().is_empty());
+            CHECK(ledger.decrement_barrier().is_empty());
+
+            // The first decrement barrier becomes the new increment barrier.
+            ledger.step();
+            CHECK(!ledger.is_empty());
+            CHECK(!ledger.increment_barrier().is_empty());
+            CHECK(ledger.decrement_barrier().is_empty());
         }
 
         SECTION("Partially full write barriers") {

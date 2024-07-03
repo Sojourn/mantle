@@ -78,11 +78,6 @@ namespace mantle {
     }
 
     MANTLE_SOURCE_INLINE
-    WriteBarrier::~WriteBarrier() {
-        assert(is_empty());
-    }
-
-    MANTLE_SOURCE_INLINE
     Ledger& WriteBarrier::ledger() {
         return ledger_;
     }
@@ -94,7 +89,32 @@ namespace mantle {
 
     MANTLE_SOURCE_INLINE
     bool WriteBarrier::is_empty() const {
-        return stack_ == nullptr;
+        if (increment_count() || decrement_count()) {
+            return false;
+        }
+
+        // Check if there are any non-committed writes.
+        if (stack_) {
+            switch (phase()) {
+                case Phase::STORE_DECREMENTS: {
+                    if (stack_->cursor() != ledger_.decrement_cursor().load(std::memory_order_acquire)) {
+                        return false;
+                    }
+                    break;
+                }
+                case Phase::STORE_INCREMENTS: {
+                    if (stack_->cursor() != ledger_.increment_cursor().load(std::memory_order_acquire)) {
+                        return false;
+                    }
+                    break;
+                }
+                default: {
+                    break;
+                }
+            }
+        }
+
+        return true;
     }
 
     MANTLE_SOURCE_INLINE
@@ -321,6 +341,16 @@ namespace mantle {
     MANTLE_SOURCE_INLINE
     Sequence Ledger::sequence() const {
         return sequence_.load(std::memory_order_acquire);
+    }
+
+    bool Ledger::is_empty() const {
+        for (const WriteBarrier& barrier : write_barriers_) {
+            if (!barrier.is_empty()) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     MANTLE_SOURCE_INLINE

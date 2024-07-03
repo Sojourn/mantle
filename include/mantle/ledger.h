@@ -83,7 +83,6 @@ namespace mantle {
         using Phase = WriteBarrierPhase;
 
         explicit WriteBarrier(Ledger& ledger, size_t phase_shift);
-        ~WriteBarrier();
 
         WriteBarrier(WriteBarrier&&) = delete;
         WriteBarrier(const WriteBarrier&) = delete;
@@ -97,6 +96,7 @@ namespace mantle {
 
         [[nodiscard]]
         bool is_empty() const;
+
         WriteBarrierSegment* back();
         void push_back(WriteBarrierSegment& segment);
         WriteBarrierSegment* pop_back();
@@ -167,6 +167,9 @@ namespace mantle {
 
         [[nodiscard]]
         Sequence sequence() const;
+
+        [[nodiscard]]
+        bool is_empty() const;
 
         Cursor& increment_cursor();
         Cursor& decrement_cursor();
