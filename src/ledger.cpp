@@ -6,6 +6,7 @@
 
 namespace mantle {
 
+    MANTLE_SOURCE_INLINE
     PrivateMemoryMapping::PrivateMemoryMapping(const size_t size, const bool populate) {
         assert(size >= PAGE_SIZE);
         assert((size % PAGE_SIZE) == 0);
@@ -25,19 +26,23 @@ namespace mantle {
         }
     }
 
+    MANTLE_SOURCE_INLINE
     PrivateMemoryMapping::~PrivateMemoryMapping() {
         const int result = munmap(memory_.data(), memory_.size());
         assert(result >= 0);
     }
 
+    MANTLE_SOURCE_INLINE
     std::span<std::byte> PrivateMemoryMapping::memory() {
         return memory_;
     }
 
+    MANTLE_SOURCE_INLINE
     std::span<const std::byte> PrivateMemoryMapping::memory() const {
         return memory_;
     }
 
+    MANTLE_SOURCE_INLINE
     WriteBarrierSegment::WriteBarrierSegment()
         : prev(nullptr)
         , barrier(nullptr)
@@ -48,18 +53,22 @@ namespace mantle {
     {
     }
 
+    MANTLE_SOURCE_INLINE
     Object** WriteBarrierSegment::cursor() {
         return &objects()[increment_count + decrement_count];
     }
 
+    MANTLE_SOURCE_INLINE
     std::span<Object*> WriteBarrierSegment::objects() {
         return std::span{reinterpret_cast<Object**>(mapping.memory().data()), mapping.memory().size_bytes() / sizeof(Object*)};
     }
 
+    MANTLE_SOURCE_INLINE
     std::span<std::byte> WriteBarrierSegment::guard_page() {
         return mapping.memory().last(PAGE_SIZE);
     }
 
+    MANTLE_SOURCE_INLINE
     WriteBarrier::WriteBarrier(Ledger& ledger, const size_t phase_shift)
         : ledger_(ledger)
         , phase_shift_(phase_shift)
@@ -68,26 +77,32 @@ namespace mantle {
         assert(phase_shift_ < WRITE_BARRIER_PHASE_COUNT);
     }
 
+    MANTLE_SOURCE_INLINE
     WriteBarrier::~WriteBarrier() {
         assert(is_empty());
     }
 
+    MANTLE_SOURCE_INLINE
     Ledger& WriteBarrier::ledger() {
         return ledger_;
     }
 
+    MANTLE_SOURCE_INLINE
     auto WriteBarrier::phase() const -> Phase {
         return static_cast<Phase>((ledger_.sequence() + phase_shift_) % WRITE_BARRIER_PHASE_COUNT);
     }
 
+    MANTLE_SOURCE_INLINE
     bool WriteBarrier::is_empty() const {
         return stack_ == nullptr;
     }
 
+    MANTLE_SOURCE_INLINE
     WriteBarrierSegment* WriteBarrier::back() {
         return stack_;
     }
 
+    MANTLE_SOURCE_INLINE
     void WriteBarrier::push_back(WriteBarrierSegment& segment) {
         assert(!segment.barrier);
         assert(!segment.prev);
@@ -115,6 +130,7 @@ namespace mantle {
         stack_ = &segment;
     }
 
+    MANTLE_SOURCE_INLINE
     WriteBarrierSegment* WriteBarrier::pop_back() {
         if (!stack_) {
             return nullptr;
@@ -137,6 +153,7 @@ namespace mantle {
         return std::exchange(stack_, stack_->prev);
     }
 
+    MANTLE_SOURCE_INLINE
     void WriteBarrier::commit(const bool pending_write) {
         assert(stack_);
 
@@ -163,6 +180,7 @@ namespace mantle {
         }
     }
 
+    MANTLE_SOURCE_INLINE
     size_t WriteBarrier::increment_count() const {
         size_t count = 0;
 
@@ -173,6 +191,7 @@ namespace mantle {
         return count;
     }
 
+    MANTLE_SOURCE_INLINE
     size_t WriteBarrier::decrement_count() const {
         size_t count = 0;
 
@@ -183,14 +202,17 @@ namespace mantle {
         return count;
     }
 
+    MANTLE_SOURCE_INLINE
     WriteBarrierManager::WriteBarrierManager() {
         // TODO: Size the segment storage/pool based on the number of threads.
     }
 
+    MANTLE_SOURCE_INLINE
     int WriteBarrierManager::file_descriptor() {
         return page_fault_handler_.file_descriptor();
     }
 
+    MANTLE_SOURCE_INLINE
     void WriteBarrierManager::poll() {
         page_fault_handler_.poll([this](std::span<const std::byte> memory, PageFaultHandler::Mode mode) {
             if (mode == PageFaultHandler::Mode::WRITE_PROTECT) {
@@ -213,17 +235,20 @@ namespace mantle {
         });
     }
 
+    MANTLE_SOURCE_INLINE
     void WriteBarrierManager::attach(WriteBarrier& barrier) {
         WriteBarrierSegment& segment = allocate_segment();
         barrier.push_back(segment);
     }
 
+    MANTLE_SOURCE_INLINE
     void WriteBarrierManager::detach(WriteBarrier& barrier) {
         while (WriteBarrierSegment* segment = barrier.pop_back()) {
             deallocate_segment(*segment);
         }
     }
 
+    MANTLE_SOURCE_INLINE
     void WriteBarrierManager::prime_guard_page(WriteBarrierSegment& segment) {
         if (segment.primed) {
             return;
@@ -237,6 +262,7 @@ namespace mantle {
         segment.primed = true;
     }
 
+    MANTLE_SOURCE_INLINE
     WriteBarrierSegment& WriteBarrierManager::allocate_segment() {
         std::scoped_lock lock(segment_pool_mutex_);
 
@@ -255,6 +281,7 @@ namespace mantle {
         return *segment;
     }
 
+    MANTLE_SOURCE_INLINE
     void WriteBarrierManager::deallocate_segment(WriteBarrierSegment& segment) {
         std::scoped_lock lock(segment_pool_mutex_);
 
@@ -266,6 +293,7 @@ namespace mantle {
         segment_pool_.push_back(&segment);
     }
 
+    MANTLE_SOURCE_INLINE
     Ledger::Ledger(WriteBarrierManager& write_barrier_manager)
         : sequence_(0)
         , increment_cursor_(local_increment_cursor())
@@ -283,24 +311,29 @@ namespace mantle {
         }
     }
 
+    MANTLE_SOURCE_INLINE
     Ledger::~Ledger() {
         for (auto&& barrier : write_barriers_) {
             write_barrier_manager_.detach(barrier);
         }
     }
 
+    MANTLE_SOURCE_INLINE
     Sequence Ledger::sequence() const {
         return sequence_.load(std::memory_order_acquire);
     }
 
+    MANTLE_SOURCE_INLINE
     auto Ledger::increment_cursor() -> Cursor& {
         return increment_cursor_;
     }
 
+    MANTLE_SOURCE_INLINE
     auto Ledger::decrement_cursor() -> Cursor& {
         return decrement_cursor_;
     }
 
+    MANTLE_SOURCE_INLINE
     WriteBarrier& Ledger::barrier(const WriteBarrierPhase phase) {
         const Sequence sequence = sequence_.load(std::memory_order_acquire);
 
@@ -309,18 +342,23 @@ namespace mantle {
         return barrier;
     }
 
+    MANTLE_SOURCE_INLINE
     WriteBarrier& Ledger::increment_barrier() {
         return barrier(WriteBarrierPhase::STORE_INCREMENTS);
     }
 
+    MANTLE_SOURCE_INLINE
     WriteBarrier& Ledger::decrement_barrier() {
         return barrier(WriteBarrierPhase::STORE_DECREMENTS);
     }
 
+    MANTLE_SOURCE_INLINE
     void Ledger::step() {
         increment_barrier().commit(false);
         decrement_barrier().commit(false);
 
+        // Atomically advance all write barriers to the next phase.
+        // Their phase is determined by the current sequence number.
         sequence_.fetch_add(1, std::memory_order_acq_rel);
 
         increment_cursor_.store(increment_barrier().back()->cursor(), std::memory_order_release);

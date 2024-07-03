@@ -5,6 +5,7 @@
 #include <array>
 #include <atomic>
 #include <cassert>
+#include <cerrno>
 #include <climits>
 #include <compare>
 #include <cstddef>
@@ -12,9 +13,11 @@
 #include <cstdlib>
 #include <cstring>
 #include <emmintrin.h>
+#include <fcntl.h>
 #include <future>
 #include <iostream>
 #include <limits>
+#include <linux/userfaultfd.h>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -29,6 +32,13 @@
 #include <string_view>
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <sys/syscall.h>
+#include <sys/types.h>
+#include <sys/user.h>
+#include <sys/wait.h>
 #include <thread>
 #include <type_traits>
 #include <unistd.h>
@@ -49,9 +59,10 @@ namespace mantle {
     // The number of messages that can be queued between `Domain` and `Region` endpoints.
     constexpr size_t STREAM_CAPACITY = 4096;
 
-
     // FIXME: Some architectures have cache lines that are 128 bytes. We should detect this.
     constexpr size_t CACHE_LINE_SIZE = 64;
+
+    constexpr size_t WRITE_BARRIER_CAPACITY = 128 * 1024;
 
     struct Config {
         std::optional<std::span<size_t>> domain_cpu_affinity;
@@ -204,6 +215,10 @@ namespace mantle {
         }
 
         std::this_thread::yield();
+    }
+
+    inline pid_t get_tid() {
+        return syscall(SYS_gettid);
     }
 
 }
@@ -407,6 +422,8 @@ namespace mantle {
         ObjectGroup group() const;
 
     private:
+        template<typename T>
+        friend class Ref;
         template<typename T>
         friend class Handle;
         friend class Region;
@@ -1431,6 +1448,98 @@ namespace mantle {
 }
 
 
+// include/mantle/page_fault_handler.h
+
+
+
+namespace mantle {
+
+    class PageFaultHandler {
+    public:
+        enum class Mode {
+            MISSING,
+            WRITE_PROTECT,
+        };
+
+        PageFaultHandler();
+        ~PageFaultHandler();
+
+        PageFaultHandler(PageFaultHandler&&) = delete;
+        PageFaultHandler(const PageFaultHandler&) = delete;
+        PageFaultHandler& operator=(PageFaultHandler&&) = delete;
+        PageFaultHandler& operator=(const PageFaultHandler&) = delete;
+
+        int file_descriptor() const;
+
+        template<typename Handler>
+        bool poll(Handler&& handler);
+
+        void register_memory(std::span<const std::byte> memory, const std::initializer_list<Mode> modes);
+        void unregister_memory(std::span<const std::byte> memory, const std::initializer_list<Mode> modes);
+
+        void write_protect_memory(std::span<const std::byte> memory);
+        void write_unprotect_memory(std::span<const std::byte> memory);
+
+    private:
+        static uint64_t translate(const Mode mode);
+        static uint64_t translate(const std::initializer_list<Mode> modes);
+
+    private:
+        int  uffd_;
+        bool has_feature_thread_id_;
+        bool has_feature_exact_address_;
+    };
+
+    template<typename Handler>
+    inline bool PageFaultHandler::poll(Handler&& handler) {
+        struct uffd_msg msg = {};
+
+        ssize_t bytes_read;
+        do {
+            bytes_read = read(uffd_, &msg, sizeof(msg));
+        } while ((bytes_read < 0) && (errno == EINTR));
+
+        if (bytes_read < 0) {
+            switch (errno) {
+                case EAGAIN:
+                    return false;
+                default:
+                    throw std::runtime_error("Failed to read userfaultfd");
+            }
+        }
+
+        if (static_cast<size_t>(bytes_read) < sizeof(msg)) {
+            throw std::runtime_error("Failed to read userfaultfd (short read)");
+        }
+
+        switch (msg.event) {
+            case UFFD_EVENT_PAGEFAULT: {
+                std::span memory = {
+                    reinterpret_cast<std::byte*>(msg.arg.pagefault.address & ~(PAGE_SIZE - 1)),
+                    PAGE_SIZE
+                };
+
+                if ((msg.arg.pagefault.flags & UFFD_PAGEFAULT_FLAG_WRITE) == UFFD_PAGEFAULT_FLAG_WRITE) {
+                    handler(memory, Mode::WRITE_PROTECT);
+                }
+                else {
+                    handler(memory, Mode::MISSING);
+                }
+                break;
+            }
+            default: {
+                // Ignore other events for now. Eventually we'll want to handle virtual memory changes
+                // to allow segments to cope with segments being resized.
+                break;
+            }
+        }
+
+        return true;
+    }
+
+}
+
+
 // include/mantle/region_controller.h
 
 
@@ -1827,6 +1936,202 @@ namespace mantle {
 }
 
 
+// include/mantle/ledger.h
+
+
+
+#define WRITE_BARRIER_PHASES(X) \
+    X(STORE_DECREMENTS)         \
+    X(DELAY)                    \
+    X(STORE_INCREMENTS)         \
+    X(APPLY)                    \
+
+namespace mantle {
+
+    class Ledger;
+    class WriteBarrier;
+
+    enum class WriteBarrierPhase {
+#define X(WRITE_BARRIER_PHASE) WRITE_BARRIER_PHASE,
+        WRITE_BARRIER_PHASES(X)
+#undef X
+    };
+
+    constexpr size_t WRITE_BARRIER_PHASE_COUNT = 0
+#define X(WRITE_BARRIER_PHASE) + 1
+        WRITE_BARRIER_PHASES(X)
+#undef X
+    ;
+
+    // This is a simple RAII wrapper around a private anonymous memory mapping.
+    class PrivateMemoryMapping {
+    public:
+        explicit PrivateMemoryMapping(size_t size, bool populate = true);
+        ~PrivateMemoryMapping();
+
+        PrivateMemoryMapping(PrivateMemoryMapping&&) = delete;
+        PrivateMemoryMapping(const PrivateMemoryMapping&) = delete;
+        PrivateMemoryMapping& operator=(PrivateMemoryMapping&&) = delete;
+        PrivateMemoryMapping& operator=(const PrivateMemoryMapping&) = delete;
+
+        [[nodiscard]]
+        std::span<std::byte> memory();
+
+        [[nodiscard]]
+        std::span<const std::byte> memory() const;
+
+    private:
+        std::span<std::byte> memory_;
+    };
+
+    struct WriteBarrierSegment {
+        WriteBarrierSegment* prev;
+        WriteBarrier*        barrier;
+        bool                 primed;
+        size_t               increment_count;
+        size_t               decrement_count;
+        PrivateMemoryMapping mapping;
+
+        WriteBarrierSegment();
+
+        WriteBarrierSegment(WriteBarrierSegment&&) = delete;
+        WriteBarrierSegment(const WriteBarrierSegment&) = delete;
+        WriteBarrierSegment& operator=(WriteBarrierSegment&&) = delete;
+        WriteBarrierSegment& operator=(const WriteBarrierSegment&) = delete;
+
+        Object** cursor();
+        std::span<Object*> objects();
+        std::span<std::byte> guard_page();
+    };
+
+    // Rename to WriteBarrierStack?
+    class WriteBarrier {
+    public:
+        using Phase = WriteBarrierPhase;
+
+        explicit WriteBarrier(Ledger& ledger, size_t phase_shift);
+        ~WriteBarrier();
+
+        WriteBarrier(WriteBarrier&&) = delete;
+        WriteBarrier(const WriteBarrier&) = delete;
+        WriteBarrier& operator=(WriteBarrier&&) = delete;
+        WriteBarrier& operator=(const WriteBarrier&) = delete;
+
+        Ledger& ledger();
+
+        [[nodiscard]]
+        Phase phase() const;
+
+        [[nodiscard]]
+        bool is_empty() const;
+        WriteBarrierSegment* back();
+        void push_back(WriteBarrierSegment& segment);
+        WriteBarrierSegment* pop_back();
+
+        void commit(bool pending_write);
+
+        // NOTE: This is O(N).
+        [[nodiscard]]
+        size_t increment_count() const;
+
+        // NOTE: This is O(N).
+        [[nodiscard]]
+        size_t decrement_count() const;
+
+    private:
+        Ledger&              ledger_;
+        size_t               phase_shift_;
+        WriteBarrierSegment* stack_;
+    };
+
+    class WriteBarrierManager {
+    public:
+        WriteBarrierManager();
+
+        [[nodiscard]]
+        int file_descriptor();
+        void poll();
+
+        void attach(WriteBarrier& barrier);
+        void detach(WriteBarrier& barrier);
+
+    private:
+        void prime_guard_page(WriteBarrierSegment& segment);
+
+        WriteBarrierSegment& allocate_segment();
+        void deallocate_segment(WriteBarrierSegment& segment);
+
+    private:
+        PageFaultHandler                                  page_fault_handler_;
+
+        std::mutex                                        segment_pool_mutex_;
+        std::vector<WriteBarrierSegment*>                 segment_pool_;
+        std::vector<std::unique_ptr<WriteBarrierSegment>> segment_pool_storage_;
+    };
+
+    class Ledger {
+    public:
+        // Conceptually a `std::atomic<std::vector<Object*>::iterator>`.
+        using Cursor = std::atomic<Object**>;
+
+        static Cursor& local_increment_cursor() {
+            thread_local Cursor cursor = nullptr;
+            return cursor;
+        }
+
+        static Cursor& local_decrement_cursor() {
+            thread_local Cursor cursor = nullptr;
+            return cursor;
+        }
+
+        explicit Ledger(WriteBarrierManager& write_barrier_manager);
+        ~Ledger();
+
+        Ledger(Ledger&&) = delete;
+        Ledger(const Ledger&) = delete;
+        Ledger& operator=(Ledger&&) = delete;
+        Ledger& operator=(const Ledger&) = delete;
+
+        [[nodiscard]]
+        Sequence sequence() const;
+
+        Cursor& increment_cursor();
+        Cursor& decrement_cursor();
+
+        // Find the barrier in the corresponding phase.
+        WriteBarrier& barrier(WriteBarrierPhase phase);
+        WriteBarrier& increment_barrier();
+        WriteBarrier& decrement_barrier();
+
+        void step();
+
+    private:
+        AtomicSequence       sequence_;
+        Cursor&              increment_cursor_;
+        Cursor&              decrement_cursor_;
+        WriteBarrier         write_barriers_[WRITE_BARRIER_PHASE_COUNT];
+        WriteBarrierManager& write_barrier_manager_;
+    };
+
+    MANTLE_HOT
+    void increment_ref_cnt(Object& object) {
+        std::atomic<Object**>& cursor = Ledger::local_increment_cursor();
+        Object** record = cursor.load(std::memory_order_acquire); // Doesn't need to be a fetch-add.
+        cursor.store(record + 1, std::memory_order_release);
+        *record = &object;
+    }
+
+    MANTLE_HOT
+    void decrement_ref_cnt(Object& object) {
+        std::atomic<Object**>& cursor = Ledger::local_decrement_cursor();
+        Object** record = cursor.load(std::memory_order_acquire); // Doesn't need to be a fetch-add.
+        cursor.store(record + 1, std::memory_order_release);
+        *record = &object;
+    }
+
+}
+
+
 // include/mantle/domain.h
 
 
@@ -1872,6 +2177,107 @@ namespace mantle {
         Doorbell               doorbell_;
         Selector               selector_;
     };
+
+}
+
+
+// include/mantle/ref.h
+
+
+namespace mantle {
+
+    template<typename T>
+    class Ref {
+        static_assert(std::is_base_of_v<Object, T>, "Object is a required base class");
+
+        friend Ref<T> bind<T>(T& object) noexcept;
+
+        Ref(T& object)
+            : object_(&object)
+        {
+            Region* region = Region::thread_local_instance();
+            assert(region);
+
+            static_cast<Object&>(object).bind(region->id());
+        }
+
+    public:
+        Ref() = delete;
+
+        Ref(const Ref& other) noexcept
+            : object_(other.object_)
+        {
+            increment_ref_cnt(*object_);
+        }
+
+        template<typename U>
+        Ref(const Ref<U>& other) noexcept
+            : object_(other.object_)
+        {
+            static_assert(std::is_base_of_v<T, U>); // TODO: lift this into a concept.
+
+            increment_ref_cnt(*object_);
+        }
+
+        Ref& operator=(const Ref& that) noexcept {
+            // We don't need to check if `this != that`.
+            // The increment will be reordered before the decrement.
+            decrement_ref_cnt(*object_);
+            object_ = that.object_;
+            increment_ref_cnt(*object_);
+
+            return *this;
+        }
+
+        template<typename U>
+        Ref& operator=(const Ref<U>& that) noexcept {
+            static_assert(std::is_base_of_v<T, U>);
+
+            decrement_ref_cnt(*object_);
+            object_ = that.object_;
+            increment_ref_cnt(*object_);
+
+            return *this;
+        }
+
+        ~Ref() noexcept {
+            decrement_ref_cnt(*object_);
+        }
+
+        T& operator*() noexcept {
+            return *object_;
+        }
+
+        const T& operator*() const noexcept {
+            return *object_;
+        }
+
+        T* operator->() noexcept {
+            return object_;
+        }
+
+        const T* operator->() const noexcept {
+            return object_;
+        }
+
+    private:
+        T* object_;
+    };
+
+    template<typename T>
+    inline Ref<T> bind(T& object) noexcept {
+        return Ref<T>(object);
+    }
+
+}
+
+namespace std {
+
+    // TODO: Use a null pointer to represent std::nullopt.
+    // template<typename T>
+    // class optional<Ref<T>> {
+    // public:
+    // };
 
 }
 
@@ -2197,6 +2603,7 @@ namespace mantle {
 
 
 // include/mantle/mantle.h
+
 
 
 
@@ -2862,6 +3269,372 @@ inline
 
         reference_count_ -= delta_magnitude;
         return true;
+    }
+
+}
+
+
+// src/ledger.cpp
+
+namespace mantle {
+
+inline
+    PrivateMemoryMapping::PrivateMemoryMapping(const size_t size, const bool populate) {
+        assert(size >= PAGE_SIZE);
+        assert((size % PAGE_SIZE) == 0);
+
+        void* address = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (address == MAP_FAILED) {
+            throw std::runtime_error("mmap failed");
+        }
+
+        memory_ = std::span(static_cast<std::byte*>(address), size);
+
+        if (populate) {
+            // Touch the first byte of each page to pre-fault the memory.
+            for (size_t i = 0; i < memory_.size_bytes(); i += PAGE_SIZE) {
+                const_cast<volatile std::byte&>(memory_[i]) = std::byte{0};
+            }
+        }
+    }
+
+inline
+    PrivateMemoryMapping::~PrivateMemoryMapping() {
+        const int result = munmap(memory_.data(), memory_.size());
+        assert(result >= 0);
+    }
+
+inline
+    std::span<std::byte> PrivateMemoryMapping::memory() {
+        return memory_;
+    }
+
+inline
+    std::span<const std::byte> PrivateMemoryMapping::memory() const {
+        return memory_;
+    }
+
+inline
+    WriteBarrierSegment::WriteBarrierSegment()
+        : prev(nullptr)
+        , barrier(nullptr)
+        , primed(false)
+        , increment_count(0)
+        , decrement_count(0)
+        , mapping(WRITE_BARRIER_CAPACITY * sizeof(Object*), true)
+    {
+    }
+
+inline
+    Object** WriteBarrierSegment::cursor() {
+        return &objects()[increment_count + decrement_count];
+    }
+
+inline
+    std::span<Object*> WriteBarrierSegment::objects() {
+        return std::span{reinterpret_cast<Object**>(mapping.memory().data()), mapping.memory().size_bytes() / sizeof(Object*)};
+    }
+
+inline
+    std::span<std::byte> WriteBarrierSegment::guard_page() {
+        return mapping.memory().last(PAGE_SIZE);
+    }
+
+inline
+    WriteBarrier::WriteBarrier(Ledger& ledger, const size_t phase_shift)
+        : ledger_(ledger)
+        , phase_shift_(phase_shift)
+        , stack_(nullptr)
+    {
+        assert(phase_shift_ < WRITE_BARRIER_PHASE_COUNT);
+    }
+
+inline
+    WriteBarrier::~WriteBarrier() {
+        assert(is_empty());
+    }
+
+inline
+    Ledger& WriteBarrier::ledger() {
+        return ledger_;
+    }
+
+inline
+    auto WriteBarrier::phase() const -> Phase {
+        return static_cast<Phase>((ledger_.sequence() + phase_shift_) % WRITE_BARRIER_PHASE_COUNT);
+    }
+
+inline
+    bool WriteBarrier::is_empty() const {
+        return stack_ == nullptr;
+    }
+
+inline
+    WriteBarrierSegment* WriteBarrier::back() {
+        return stack_;
+    }
+
+inline
+    void WriteBarrier::push_back(WriteBarrierSegment& segment) {
+        assert(!segment.barrier);
+        assert(!segment.prev);
+        assert(segment.increment_count == 0);
+        assert(segment.decrement_count == 0);
+        assert(segment.primed);
+
+        segment.barrier = this;
+        segment.prev = stack_;
+
+        switch (phase()) {
+            case WriteBarrierPhase::STORE_INCREMENTS: {
+                ledger_.increment_cursor().store(segment.cursor(), std::memory_order_release);
+                break;
+            }
+            case WriteBarrierPhase::STORE_DECREMENTS: {
+                ledger_.decrement_cursor().store(segment.cursor(), std::memory_order_release);
+                break;
+            }
+            default: {
+                break; // This segment is not active.
+            }
+        }
+
+        stack_ = &segment;
+    }
+
+inline
+    WriteBarrierSegment* WriteBarrier::pop_back() {
+        if (!stack_) {
+            return nullptr;
+        }
+
+        switch (phase()) {
+            case WriteBarrierPhase::STORE_INCREMENTS: {
+                ledger_.increment_cursor().store(nullptr, std::memory_order_release);
+                break;
+            }
+            case WriteBarrierPhase::STORE_DECREMENTS: {
+                ledger_.decrement_cursor().store(nullptr, std::memory_order_release);
+                break;
+            }
+            default: {
+                break; // This segment is not active.
+            }
+        }
+
+        return std::exchange(stack_, stack_->prev);
+    }
+
+inline
+    void WriteBarrier::commit(const bool pending_write) {
+        assert(stack_);
+
+        if (pending_write) {
+            stack_->primed = false;
+        }
+
+        switch (phase()) {
+            case Phase::STORE_INCREMENTS: {
+                auto first = stack_->cursor();
+                auto last = ledger_.increment_cursor().load(std::memory_order_acquire);
+                stack_->increment_count = last - first;
+                break;
+            }
+            case Phase::STORE_DECREMENTS: {
+                auto first = stack_->cursor();
+                auto last = ledger_.decrement_cursor().load(std::memory_order_acquire);
+                stack_->decrement_count = last - first;
+                break;
+            }
+            default: {
+                abort();
+            }
+        }
+    }
+
+inline
+    size_t WriteBarrier::increment_count() const {
+        size_t count = 0;
+
+        for (const WriteBarrierSegment* segment = stack_; segment; segment = segment->prev) {
+            count += segment->increment_count;
+        }
+
+        return count;
+    }
+
+inline
+    size_t WriteBarrier::decrement_count() const {
+        size_t count = 0;
+
+        for (const WriteBarrierSegment* segment = stack_; segment; segment = segment->prev) {
+            count += segment->decrement_count;
+        }
+
+        return count;
+    }
+
+inline
+    WriteBarrierManager::WriteBarrierManager() {
+        // TODO: Size the segment storage/pool based on the number of threads.
+    }
+
+inline
+    int WriteBarrierManager::file_descriptor() {
+        return page_fault_handler_.file_descriptor();
+    }
+
+inline
+    void WriteBarrierManager::poll() {
+        page_fault_handler_.poll([this](std::span<const std::byte> memory, PageFaultHandler::Mode mode) {
+            if (mode == PageFaultHandler::Mode::WRITE_PROTECT) {
+                WriteBarrierSegment* prev_segment;
+                memcpy(&prev_segment, memory.data(), sizeof(prev_segment));
+
+                WriteBarrier& barrier = *prev_segment->barrier;
+                barrier.commit(true);
+
+                WriteBarrierSegment& next_segment = allocate_segment();
+                assert(next_segment.primed);
+                barrier.push_back(next_segment);
+
+                // Allow the pending write to proceed now that the next segment has been installed.
+                page_fault_handler_.write_unprotect_memory(prev_segment->guard_page());
+            }
+            else {
+                abort();
+            }
+        });
+    }
+
+inline
+    void WriteBarrierManager::attach(WriteBarrier& barrier) {
+        WriteBarrierSegment& segment = allocate_segment();
+        barrier.push_back(segment);
+    }
+
+inline
+    void WriteBarrierManager::detach(WriteBarrier& barrier) {
+        while (WriteBarrierSegment* segment = barrier.pop_back()) {
+            deallocate_segment(*segment);
+        }
+    }
+
+inline
+    void WriteBarrierManager::prime_guard_page(WriteBarrierSegment& segment) {
+        if (segment.primed) {
+            return;
+        }
+
+        const WriteBarrierSegment* segment_address = &segment;
+        std::span<std::byte> guard_page = segment.guard_page();
+        memcpy(guard_page.data(), &segment_address, sizeof(segment_address));
+
+        page_fault_handler_.write_protect_memory(guard_page);
+        segment.primed = true;
+    }
+
+inline
+    WriteBarrierSegment& WriteBarrierManager::allocate_segment() {
+        std::scoped_lock lock(segment_pool_mutex_);
+
+        WriteBarrierSegment* segment = nullptr;
+
+        if (UNLIKELY(segment_pool_.empty())) {
+            segment = segment_pool_storage_.emplace_back(std::make_unique<WriteBarrierSegment>()).get();
+            page_fault_handler_.register_memory(segment->guard_page(), {PageFaultHandler::Mode::WRITE_PROTECT});
+        }
+        else {
+            segment = segment_pool_.back();
+            segment_pool_.pop_back();
+        }
+
+        prime_guard_page(*segment);
+        return *segment;
+    }
+
+inline
+    void WriteBarrierManager::deallocate_segment(WriteBarrierSegment& segment) {
+        std::scoped_lock lock(segment_pool_mutex_);
+
+        segment.barrier = nullptr;
+        segment.prev = nullptr;
+        segment.increment_count = 0;
+        segment.decrement_count = 0;
+
+        segment_pool_.push_back(&segment);
+    }
+
+inline
+    Ledger::Ledger(WriteBarrierManager& write_barrier_manager)
+        : sequence_(0)
+        , increment_cursor_(local_increment_cursor())
+        , decrement_cursor_(local_decrement_cursor())
+        , write_barriers_{
+            WriteBarrier{*this, 0},
+            WriteBarrier{*this, 1},
+            WriteBarrier{*this, 2},
+            WriteBarrier{*this, 3},
+        }
+        , write_barrier_manager_(write_barrier_manager)
+    {
+        for (auto&& barrier : write_barriers_) {
+            write_barrier_manager_.attach(barrier);
+        }
+    }
+
+inline
+    Ledger::~Ledger() {
+        for (auto&& barrier : write_barriers_) {
+            write_barrier_manager_.detach(barrier);
+        }
+    }
+
+inline
+    Sequence Ledger::sequence() const {
+        return sequence_.load(std::memory_order_acquire);
+    }
+
+inline
+    auto Ledger::increment_cursor() -> Cursor& {
+        return increment_cursor_;
+    }
+
+inline
+    auto Ledger::decrement_cursor() -> Cursor& {
+        return decrement_cursor_;
+    }
+
+inline
+    WriteBarrier& Ledger::barrier(const WriteBarrierPhase phase) {
+        const Sequence sequence = sequence_.load(std::memory_order_acquire);
+
+        WriteBarrier& barrier = write_barriers_[(static_cast<uint64_t>(phase) - sequence) % WRITE_BARRIER_PHASE_COUNT];
+        assert(phase == barrier.phase());
+        return barrier;
+    }
+
+inline
+    WriteBarrier& Ledger::increment_barrier() {
+        return barrier(WriteBarrierPhase::STORE_INCREMENTS);
+    }
+
+inline
+    WriteBarrier& Ledger::decrement_barrier() {
+        return barrier(WriteBarrierPhase::STORE_DECREMENTS);
+    }
+
+inline
+    void Ledger::step() {
+        increment_barrier().commit(false);
+        decrement_barrier().commit(false);
+
+        // Atomically advance all write barriers to the next phase.
+        // Their phase is determined by the current sequence number.
+        sequence_.fetch_add(1, std::memory_order_acq_rel);
+
+        increment_cursor_.store(increment_barrier().back()->cursor(), std::memory_order_release);
+        decrement_cursor_.store(decrement_barrier().back()->cursor(), std::memory_order_release);
     }
 
 }
@@ -3728,74 +4501,149 @@ inline
 }
 
 
-// include/mantle/ledger.h
-
+// src/page_fault_handler.cpp
 
 namespace mantle {
 
-    struct LedgerSegment {
-        void**  objects;
-        size_t  offset;
-        size_t  increment_count;
-        size_t  decrement_count;
-        bool    increment_spill;
-        bool    decrement_spill;
-    };
-
-    struct Ledger {
-        static Ledger*& local_instance() {
-            thread_local Ledger* instance = nullptr;
-            return instance;
+inline
+    PageFaultHandler::PageFaultHandler()
+        : uffd_(-1)
+        , has_feature_thread_id_(false)
+        , has_feature_exact_address_(false)
+    {
+        uffd_ = static_cast<int>(syscall(SYS_userfaultfd, O_CLOEXEC | O_NONBLOCK | UFFD_USER_MODE_ONLY));
+        if (uffd_ < 0) {
+            throw std::runtime_error("Failed to create userfaultfd");
         }
 
-        LedgerSegment* mutable_increment_segment;
-        LedgerSegment* mutable_decrement_segment;
-    };
-
-    inline void write_increment(void* object) {
-        LedgerSegment* segment = Ledger::local_instance()->mutable_increment_segment;
-        segment->objects[segment->offset++] = object;
-    }
-
-    inline void write_decrement(void* object) {
-        LedgerSegment* segment = Ledger::local_instance()->mutable_decrement_segment;
-        segment->objects[segment->offset++] = object;
-    }
-
-    class Ref {
-    public:
-        explicit Ref(void* object) noexcept
-            : object_(object)
+        // API handshake and feature detection must happen before we use the file descriptor.
         {
-        }
+            constexpr uint64_t required_features = 0;
+            constexpr uint64_t optional_features = UFFD_FEATURE_THREAD_ID|UFFD_FEATURE_EXACT_ADDRESS;
 
-        Ref(const Ref& that) noexcept
-            : object_(that.object_)
-        {
-            write_increment(object_);
-        }
+            struct uffdio_api uffdio_api;
+            memset(&uffdio_api, 0, sizeof(uffdio_api));
+            uffdio_api.api = UFFD_API;
+            uffdio_api.features = required_features|optional_features;
+            uffdio_api.ioctls = _UFFDIO_API | _UFFDIO_REGISTER | _UFFDIO_UNREGISTER;
 
-        ~Ref() noexcept {
-            write_decrement(object_);
-        }
-
-        Ref& operator=(const Ref& that) noexcept {
-            if (this != &that) {
-                write_decrement(object_);
-                write_increment(that.object_);
-                object_ = that.object_;
+            if (ioctl(uffd_, UFFDIO_API, &uffdio_api) < 0) {
+                throw std::runtime_error("FaultHandler API handshake failed");
+            }
+            if ((uffdio_api.features & required_features) != required_features) {
+                throw std::runtime_error("FaultHandler API missing required features");
             }
 
-            return *this;
+            has_feature_thread_id_ = static_cast<bool>(uffdio_api.features & UFFD_FEATURE_THREAD_ID);
+            has_feature_exact_address_ = static_cast<bool>(uffdio_api.features & UFFD_FEATURE_EXACT_ADDRESS);
+
+            assert(uffdio_api.ioctls & (1ull << _UFFDIO_API));
+            assert(uffdio_api.ioctls & (1ull << _UFFDIO_REGISTER));
+            assert(uffdio_api.ioctls & (1ull << _UFFDIO_UNREGISTER));
+        }
+    }
+
+inline
+    PageFaultHandler::~PageFaultHandler() {
+        const int result = close(uffd_);
+        assert(result >= 0);
+    }
+
+inline
+    int PageFaultHandler::file_descriptor() const {
+        return uffd_;
+    }
+
+inline
+    void PageFaultHandler::register_memory(std::span<const std::byte> memory, const std::initializer_list<Mode> modes) {
+        struct uffdio_register uffdio_register = {};
+        uffdio_register.mode = translate(modes);
+        uffdio_register.range = {
+            .start = reinterpret_cast<uintptr_t>(memory.data()),
+            .len = memory.size_bytes(),
+        };
+
+        assert((uffdio_register.range.start % PAGE_SIZE) == 0);
+
+        if (ioctl(uffd_, UFFDIO_REGISTER, &uffdio_register) < 0) {
+            throw std::runtime_error("Failed to register memory region");
+        }
+    }
+
+inline
+    void PageFaultHandler::unregister_memory(std::span<const std::byte> memory, const std::initializer_list<Mode> modes) {
+        struct uffdio_register uffdio_register = {};
+        uffdio_register.mode = translate(modes);
+        uffdio_register.range = {
+            .start = reinterpret_cast<uintptr_t>(memory.data()),
+            .len = memory.size_bytes(),
+        };
+
+        assert((uffdio_register.range.start % PAGE_SIZE) == 0);
+
+        if (ioctl(uffd_, UFFDIO_UNREGISTER, &uffdio_register) < 0) {
+            throw std::runtime_error("Failed to unregister memory region");
+        }
+    }
+
+inline
+    void PageFaultHandler::write_protect_memory(std::span<const std::byte> memory) {
+        struct uffdio_writeprotect uffdio_writeprotect = {
+            .range = {
+                .start = reinterpret_cast<uintptr_t>(memory.data()),
+                .len = memory.size_bytes(),
+            },
+            .mode = UFFDIO_WRITEPROTECT_MODE_WP,
+        };
+
+        assert((uffdio_writeprotect.range.start % PAGE_SIZE) == 0);
+
+        if (ioctl(uffd_, UFFDIO_WRITEPROTECT, &uffdio_writeprotect) < 0) {
+            throw std::runtime_error("Failed to write protect memory region");
+        }
+    }
+
+inline
+    void PageFaultHandler::write_unprotect_memory(std::span<const std::byte> memory) {
+        struct uffdio_writeprotect uffdio_writeprotect = {
+            .range = {
+                .start = reinterpret_cast<uintptr_t>(memory.data()),
+                .len = memory.size_bytes(),
+            },
+            .mode = 0,
+        };
+
+        assert((uffdio_writeprotect.range.start % PAGE_SIZE) == 0);
+
+        if (ioctl(uffd_, UFFDIO_WRITEPROTECT, &uffdio_writeprotect) < 0) {
+            throw std::runtime_error("Failed to write unprotect memory region");
+        }
+    }
+
+inline
+    uint64_t PageFaultHandler::translate(const Mode mode) {
+        switch (mode) {
+            case Mode::MISSING: {
+                return UFFDIO_REGISTER_MODE_MISSING;
+            }
+            case Mode::WRITE_PROTECT: {
+                return UFFDIO_REGISTER_MODE_WP;
+            }
         }
 
-        void* object() const noexcept {
-            return object_;
+        __builtin_unreachable();
+    }
+
+inline
+    uint64_t PageFaultHandler::translate(const std::initializer_list<Mode> modes) {
+        uint64_t mask = 0;
+
+        for (const Mode mode : modes) {
+            mask |= translate(mode);
         }
 
-    private:
-        void* object_;
-    };
+        return mask;
+    }
 
 }
 

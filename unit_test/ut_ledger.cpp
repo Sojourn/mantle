@@ -1,6 +1,7 @@
 #include "catch.hpp"
 #include "mantle/object.h"
 #include "mantle/ledger.h"
+#include "mantle/ref.h"
 
 using namespace mantle;
 
