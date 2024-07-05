@@ -13,6 +13,7 @@ namespace mantle {
         , running_(false)
     {
         selector_.add_watch(doorbell_.file_descriptor(), &doorbell_);
+        selector_.add_watch(write_barrier_manager_.file_descriptor(), &write_barrier_manager_);
 
         std::promise<void> init_promise;
         std::future<void> init_future = init_promise.get_future();
@@ -47,6 +48,11 @@ namespace mantle {
     MANTLE_SOURCE_INLINE
     const Config& Domain::config() const {
         return config_;
+    }
+
+    MANTLE_SOURCE_INLINE
+    WriteBarrierManager& Domain::write_barrier_manager() {
+        return write_barrier_manager_;
     }
 
     MANTLE_SOURCE_INLINE
@@ -91,7 +97,11 @@ namespace mantle {
     void Domain::handle_event(void* user_data) {
         constexpr bool non_blocking = true;
 
-        if (user_data == &doorbell_) {
+        if (user_data == &write_barrier_manager_) {
+            // Resolve a write protection fault and resume the region.
+            write_barrier_manager_.poll(non_blocking);
+        }
+        else if (user_data == &doorbell_) {
             // We'll add a controller for the new region later.
             // Re-arm the doorbell now that we've awoken.
             doorbell_.poll(non_blocking);

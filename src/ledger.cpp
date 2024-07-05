@@ -55,12 +55,26 @@ namespace mantle {
 
     MANTLE_SOURCE_INLINE
     Object** WriteBarrierSegment::cursor() {
-        return &objects()[increment_count + decrement_count];
+        Object** base = reinterpret_cast<Object**>(mapping.memory().data());
+        return base + (increment_count + decrement_count);
     }
 
     MANTLE_SOURCE_INLINE
-    std::span<Object*> WriteBarrierSegment::objects() {
-        return std::span{reinterpret_cast<Object**>(mapping.memory().data()), mapping.memory().size_bytes() / sizeof(Object*)};
+    std::span<Object*> WriteBarrierSegment::records() {
+        return {
+            reinterpret_cast<Object**>(mapping.memory().data()),
+            increment_count + decrement_count
+        };
+    }
+
+    MANTLE_SOURCE_INLINE
+    std::span<Object*> WriteBarrierSegment::increment_records() {
+        return records().last(increment_count);
+    }
+
+    MANTLE_SOURCE_INLINE
+    std::span<Object*> WriteBarrierSegment::decrement_records() {
+        return records().first(decrement_count);
     }
 
     MANTLE_SOURCE_INLINE
@@ -233,7 +247,7 @@ namespace mantle {
     }
 
     MANTLE_SOURCE_INLINE
-    void WriteBarrierManager::poll() {
+    void WriteBarrierManager::poll(bool non_blocking) {
         page_fault_handler_.poll([this](std::span<const std::byte> memory, PageFaultHandler::Mode mode) {
             if (mode == PageFaultHandler::Mode::WRITE_PROTECT) {
                 WriteBarrierSegment* prev_segment;
@@ -252,7 +266,7 @@ namespace mantle {
             else {
                 abort();
             }
-        });
+        }, non_blocking);
     }
 
     MANTLE_SOURCE_INLINE

@@ -8,6 +8,7 @@
 #include "mantle/doorbell.h"
 #include "mantle/selector.h"
 #include "mantle/region.h"
+#include "mantle/ledger.h"
 #include "mantle/region_controller.h"
 
 namespace mantle {
@@ -29,6 +30,9 @@ namespace mantle {
         [[nodiscard]]
         const Config& config() const;
 
+        [[nodiscard]]
+        WriteBarrierManager& write_barrier_manager();
+
     private:
         void run();
 
@@ -47,6 +51,8 @@ namespace mantle {
         std::mutex             regions_mutex_;
         std::vector<Region*>   regions_;
         RegionControllerGroup  controllers_;
+
+        WriteBarrierManager    write_barrier_manager_;
 
         bool                   running_;
         Doorbell               doorbell_;

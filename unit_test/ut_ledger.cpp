@@ -76,7 +76,8 @@ TEST_CASE("Ledger") {
     });
 
     while (!done) {
-        write_barrier_manager.poll();
+        constexpr bool non_blocking = true;
+        write_barrier_manager.poll(non_blocking);
     }
 
     thread.join();

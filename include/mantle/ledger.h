@@ -73,7 +73,9 @@ namespace mantle {
         WriteBarrierSegment& operator=(const WriteBarrierSegment&) = delete;
 
         Object** cursor();
-        std::span<Object*> objects();
+        std::span<Object*> records();
+        std::span<Object*> increment_records();
+        std::span<Object*> decrement_records();
         std::span<std::byte> guard_page();
     };
 
@@ -97,6 +99,7 @@ namespace mantle {
         [[nodiscard]]
         bool is_empty() const;
 
+        // TODO: Give these `_segment` suffixes.
         WriteBarrierSegment* back();
         void push_back(WriteBarrierSegment& segment);
         WriteBarrierSegment* pop_back();
@@ -123,16 +126,16 @@ namespace mantle {
 
         [[nodiscard]]
         int file_descriptor();
-        void poll();
+        void poll(bool non_blocking);
 
         void attach(WriteBarrier& barrier);
         void detach(WriteBarrier& barrier);
 
-    private:
-        void prime_guard_page(WriteBarrierSegment& segment);
-
         WriteBarrierSegment& allocate_segment();
         void deallocate_segment(WriteBarrierSegment& segment);
+
+    private:
+        void prime_guard_page(WriteBarrierSegment& segment);
 
     private:
         PageFaultHandler                                  page_fault_handler_;
@@ -204,5 +207,7 @@ namespace mantle {
         cursor.store(record + 1, std::memory_order_release);
         *record = &object;
     }
+
+    using ObjectLedger = Ledger;
 
 }

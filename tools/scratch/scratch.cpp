@@ -16,8 +16,8 @@ int main(int argc, char** argv) {
     std::atomic_bool done = false;
 
     std::thread thread([&]() {
-        for (size_t k = 0; k < 2001; k += 1) {
-            for (size_t j = 0; j < 2001; j += 7) {
+        for (size_t k = 0; k < 2001; k += 13) {
+            for (size_t j = 0; j < 2001; j += 69) {
                 Ledger ledger(write_barrier_manager);
                 Object object;
 
@@ -42,7 +42,8 @@ int main(int argc, char** argv) {
     });
 
     while (!done) {
-        write_barrier_manager.poll();
+        constexpr bool non_blocking = true;
+        write_barrier_manager.poll(non_blocking);
     }
 
     thread.join();

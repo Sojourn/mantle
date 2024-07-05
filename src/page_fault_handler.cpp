@@ -5,12 +5,12 @@ namespace mantle {
 
     MANTLE_SOURCE_INLINE
     PageFaultHandler::PageFaultHandler()
-        : uffd_(-1)
+        : file_descriptor_(-1)
         , has_feature_thread_id_(false)
         , has_feature_exact_address_(false)
     {
-        uffd_ = static_cast<int>(syscall(SYS_userfaultfd, O_CLOEXEC | O_NONBLOCK | UFFD_USER_MODE_ONLY));
-        if (uffd_ < 0) {
+        file_descriptor_ = static_cast<int>(syscall(SYS_userfaultfd, O_CLOEXEC | O_NONBLOCK | UFFD_USER_MODE_ONLY));
+        if (file_descriptor_ < 0) {
             throw std::runtime_error("Failed to create userfaultfd");
         }
 
@@ -25,7 +25,7 @@ namespace mantle {
             uffdio_api.features = required_features|optional_features;
             uffdio_api.ioctls = _UFFDIO_API | _UFFDIO_REGISTER | _UFFDIO_UNREGISTER;
 
-            if (ioctl(uffd_, UFFDIO_API, &uffdio_api) < 0) {
+            if (ioctl(file_descriptor_, UFFDIO_API, &uffdio_api) < 0) {
                 throw std::runtime_error("FaultHandler API handshake failed");
             }
             if ((uffdio_api.features & required_features) != required_features) {
@@ -43,13 +43,13 @@ namespace mantle {
 
     MANTLE_SOURCE_INLINE
     PageFaultHandler::~PageFaultHandler() {
-        const int result = close(uffd_);
+        const int result = close(file_descriptor_);
         assert(result >= 0);
     }
 
     MANTLE_SOURCE_INLINE
     int PageFaultHandler::file_descriptor() const {
-        return uffd_;
+        return file_descriptor_;
     }
 
     MANTLE_SOURCE_INLINE
@@ -63,7 +63,7 @@ namespace mantle {
 
         assert((uffdio_register.range.start % PAGE_SIZE) == 0);
 
-        if (ioctl(uffd_, UFFDIO_REGISTER, &uffdio_register) < 0) {
+        if (ioctl(file_descriptor_, UFFDIO_REGISTER, &uffdio_register) < 0) {
             throw std::runtime_error("Failed to register memory region");
         }
     }
@@ -79,7 +79,7 @@ namespace mantle {
 
         assert((uffdio_register.range.start % PAGE_SIZE) == 0);
 
-        if (ioctl(uffd_, UFFDIO_UNREGISTER, &uffdio_register) < 0) {
+        if (ioctl(file_descriptor_, UFFDIO_UNREGISTER, &uffdio_register) < 0) {
             throw std::runtime_error("Failed to unregister memory region");
         }
     }
@@ -96,7 +96,7 @@ namespace mantle {
 
         assert((uffdio_writeprotect.range.start % PAGE_SIZE) == 0);
 
-        if (ioctl(uffd_, UFFDIO_WRITEPROTECT, &uffdio_writeprotect) < 0) {
+        if (ioctl(file_descriptor_, UFFDIO_WRITEPROTECT, &uffdio_writeprotect) < 0) {
             throw std::runtime_error("Failed to write protect memory region");
         }
     }
@@ -113,7 +113,7 @@ namespace mantle {
 
         assert((uffdio_writeprotect.range.start % PAGE_SIZE) == 0);
 
-        if (ioctl(uffd_, UFFDIO_WRITEPROTECT, &uffdio_writeprotect) < 0) {
+        if (ioctl(file_descriptor_, UFFDIO_WRITEPROTECT, &uffdio_writeprotect) < 0) {
             throw std::runtime_error("Failed to write unprotect memory region");
         }
     }

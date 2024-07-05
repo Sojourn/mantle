@@ -18,6 +18,8 @@
 #include <sys/syscall.h>
 #include <linux/userfaultfd.h>
 
+#include "mantle/selector.h"
+
 namespace mantle {
 
     class PageFaultHandler {
@@ -38,7 +40,7 @@ namespace mantle {
         int file_descriptor() const;
 
         template<typename Handler>
-        bool poll(Handler&& handler);
+        bool poll(Handler&& handler, bool non_blocking);
 
         void register_memory(std::span<const std::byte> memory, const std::initializer_list<Mode> modes);
         void unregister_memory(std::span<const std::byte> memory, const std::initializer_list<Mode> modes);
@@ -51,18 +53,22 @@ namespace mantle {
         static uint64_t translate(const std::initializer_list<Mode> modes);
 
     private:
-        int  uffd_;
+        int  file_descriptor_;
         bool has_feature_thread_id_;
         bool has_feature_exact_address_;
     };
 
     template<typename Handler>
-    inline bool PageFaultHandler::poll(Handler&& handler) {
+    inline bool PageFaultHandler::poll(Handler&& handler, bool non_blocking) {
         struct uffd_msg msg = {};
+
+        if (!non_blocking) {
+            wait_for_readable(file_descriptor_);
+        }
 
         ssize_t bytes_read;
         do {
-            bytes_read = read(uffd_, &msg, sizeof(msg));
+            bytes_read = read(file_descriptor_, &msg, sizeof(msg));
         } while ((bytes_read < 0) && (errno == EINTR));
 
         if (bytes_read < 0) {
