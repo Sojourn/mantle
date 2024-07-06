@@ -147,7 +147,14 @@ namespace mantle {
 
             // Create a controller to manage the region.
             {
-                auto controller = std::make_unique<RegionController>(region_id, controllers_, region.ledger(), config_);
+                auto controller = std::make_unique<RegionController>(
+                    region_id,
+                    controllers_,
+                    region.ledger(),
+                    write_barrier_manager_,
+                    config_
+                );
+
                 controller->start(census.max_cycle());
                 controllers_.push_back(std::move(controller));
             }

@@ -122,10 +122,12 @@ namespace mantle {
         const RegionId region_id,
         RegionControllerGroup& controllers,
         const OperationLedger& ledger,
+        WriteBarrierManager& write_barrier_manager,
         const Config& config
     )
         : region_id_(region_id)
         , controllers_(controllers)
+        , write_barrier_manager_(write_barrier_manager)
         , ledger_(ledger)
         , config_(config)
         , state_(State::STARTING)

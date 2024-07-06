@@ -1,4 +1,5 @@
 #include "catch.hpp"
+#include "mantle/ledger.h"
 #include "mantle/object.h"
 #include "mantle/region_controller.h"
 
@@ -37,6 +38,8 @@ TEST_CASE("RegionController") {
 
     Config config;
 
+    WriteBarrierManager write_barrier_manager;
+
     std::vector<std::unique_ptr<OperationLedger>> ledgers;
     ledgers.push_back(std::make_unique<OperationLedger>(config.ledger_capacity));
     ledgers.push_back(std::make_unique<OperationLedger>(config.ledger_capacity));
@@ -46,7 +49,13 @@ TEST_CASE("RegionController") {
     RegionControllerGroup controllers;
     for (RegionId region_id = 0; region_id < ledgers.size(); ++region_id) {
         controllers.push_back(
-            std::make_unique<RegionController>(region_id, controllers, *ledgers[region_id], config)
+            std::make_unique<RegionController>(
+                region_id,
+                controllers,
+                *ledgers[region_id],
+                write_barrier_manager,
+                config
+            )
         );
     }
 

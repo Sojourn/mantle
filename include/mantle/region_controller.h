@@ -13,6 +13,7 @@
 #include "mantle/config.h"
 #include "mantle/util.h"
 #include "mantle/message.h"
+#include "mantle/ledger.h"
 #include "mantle/object.h"
 #include "mantle/object_grouper.h"
 #include "mantle/operation.h"
@@ -170,6 +171,7 @@ namespace mantle {
             RegionId region_id,
             RegionControllerGroup& controllers,
             const OperationLedger& ledger,
+            WriteBarrierManager& write_barrier_manager,
             const Config& config
         );
 
@@ -205,6 +207,7 @@ namespace mantle {
     private:
         RegionId               region_id_;
         RegionControllerGroup& controllers_;
+        WriteBarrierManager&   write_barrier_manager_;
         const OperationLedger& ledger_;
         const Config&          config_;
 
@@ -212,7 +215,7 @@ namespace mantle {
         Phase                  phase_;
         Cycle                  cycle_;
 
-    SequenceRange          submitted_increments_;
+        SequenceRange          submitted_increments_;
         SequenceRange          submitted_decrements_;
 
         OperationGrouper       operation_grouper_;
