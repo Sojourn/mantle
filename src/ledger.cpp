@@ -46,10 +46,10 @@ namespace mantle {
     WriteBarrierSegment::WriteBarrierSegment()
         : prev(nullptr)
         , barrier(nullptr)
+        , mapping(WRITE_BARRIER_CAPACITY * sizeof(Object*), true)
         , primed(false)
         , increment_count(0)
         , decrement_count(0)
-        , mapping(WRITE_BARRIER_CAPACITY * sizeof(Object*), true)
     {
     }
 
@@ -188,12 +188,8 @@ namespace mantle {
     }
 
     MANTLE_SOURCE_INLINE
-    void WriteBarrier::commit(const bool pending_write) {
+    void WriteBarrier::commit() {
         assert(stack_);
-
-        if (pending_write) {
-            stack_->primed = false;
-        }
 
         switch (phase()) {
             case Phase::STORE_INCREMENTS: {
@@ -254,13 +250,14 @@ namespace mantle {
                 memcpy(&prev_segment, memory.data(), sizeof(prev_segment));
 
                 WriteBarrier& barrier = *prev_segment->barrier;
-                barrier.commit(true);
+                barrier.commit();
 
                 WriteBarrierSegment& next_segment = allocate_segment();
                 assert(next_segment.primed);
                 barrier.push_back(next_segment);
 
                 // Allow the pending write to proceed now that the next segment has been installed.
+                prev_segment->primed = false;
                 page_fault_handler_.write_unprotect_memory(prev_segment->guard_page());
             }
             else {
@@ -398,8 +395,8 @@ namespace mantle {
 
     MANTLE_SOURCE_INLINE
     void Ledger::step() {
-        increment_barrier().commit(false);
-        decrement_barrier().commit(false);
+        increment_barrier().commit();
+        decrement_barrier().commit();
 
         // Atomically advance all write barriers to the next phase.
         // Their phase is determined by the current sequence number.

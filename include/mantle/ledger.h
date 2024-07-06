@@ -60,10 +60,10 @@ namespace mantle {
     struct WriteBarrierSegment {
         WriteBarrierSegment* prev;
         WriteBarrier*        barrier;
-        bool                 primed;
+        PrivateMemoryMapping mapping;
+        bool                 primed; // Write protection status.
         size_t               increment_count;
         size_t               decrement_count;
-        PrivateMemoryMapping mapping;
 
         WriteBarrierSegment();
 
@@ -104,20 +104,20 @@ namespace mantle {
         void push_back(WriteBarrierSegment& segment);
         WriteBarrierSegment* pop_back();
 
-        void commit(bool pending_write);
+        void commit();
 
-        // NOTE: This is O(N).
+        // NOTE: This is O(#segments).
         [[nodiscard]]
         size_t increment_count() const;
 
-        // NOTE: This is O(N).
+        // NOTE: This is O(#segments).
         [[nodiscard]]
         size_t decrement_count() const;
 
     private:
         Ledger&              ledger_;
         size_t               phase_shift_;
-        WriteBarrierSegment* stack_;
+        WriteBarrierSegment* stack_; // Top of the stack.
     };
 
     class WriteBarrierManager {
