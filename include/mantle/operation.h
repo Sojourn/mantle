@@ -24,7 +24,7 @@ namespace mantle {
         // Lower 3 bit of the tag encode an exponent which is used for greater range.
         // This is also a useful optimization for weighted references which are usually
         // split on powers-of-two.
-        static constexpr uintptr_t EXPONENT_BITS  = 3;
+        static constexpr uintptr_t EXPONENT_BITS  = 2;
         static constexpr uintptr_t EXPONENT_SHIFT = 0;
         static constexpr uintptr_t EXPONENT_MASK  = ((1ull << EXPONENT_BITS) - 1) << EXPONENT_SHIFT;
         static constexpr uintptr_t EXPONENT_MIN   = 0;

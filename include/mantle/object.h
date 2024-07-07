@@ -7,8 +7,8 @@
 
 namespace mantle {
 
-    // This alignment gives us 4 tag bits to use in the encoding of an operation.
-    class alignas(16) Object {
+    // This alignment gives us 3 tag bits to use in the encoding of an operation.
+    class alignas(alignof(void*)) Object {
     public:
         explicit Object(ObjectGroup group = 0);
         ~Object();
