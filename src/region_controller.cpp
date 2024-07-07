@@ -436,7 +436,7 @@ namespace mantle {
             }
 
             RegionController& controller = *controllers_[region_id];
-            controller.operation_grouper_.write(operation, true);
+            controller.operation_grouper_.write(operation, false);
 
             count += 1;
         }
