@@ -203,6 +203,7 @@ namespace mantle {
         void transition(Cycle next_cycle);
 
         size_t route_operations(OperationType type, SequenceRange range);
+        size_t route_operations(OperationType type, std::span<Object*> objects);
 
     private:
         RegionId               region_id_;

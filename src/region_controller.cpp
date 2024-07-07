@@ -357,7 +357,6 @@ namespace mantle {
             }
             case Phase::SUBMIT_BARRIER: {
                 // We are waiting for all regions to respond.
-                // NOTE: This phase can be combined with the next if we double buffer retired operations.
                 metrics_.increment_count += route_operations(
                     OperationType::INCREMENT,
                     submitted_increments_
@@ -366,6 +365,24 @@ namespace mantle {
                     OperationType::DECREMENT,
                     submitted_decrements_
                 );
+
+                if (write_barrier_) {
+                    while (WriteBarrierSegment* segment = write_barrier_->pop_back()) {
+                        metrics_.increment_count += route_operations(OperationType::INCREMENT, segment->increment_records());
+                        metrics_.decrement_count += route_operations(OperationType::DECREMENT, segment->decrement_records());
+
+                        write_barrier_manager_.deallocate_segment(*segment);
+                    }
+
+                    // Make the write barrier ready for use again.
+                    write_barrier_->push_back(
+                        write_barrier_manager_.allocate_segment()
+                    );
+                }
+                else {
+                    // TEMP: Remove the conditional once transitioned.
+                }
+
                 break;
             }
             case Phase::RETIRE_BARRIER: {
@@ -444,6 +461,23 @@ namespace mantle {
         }
 
         return count;
+    }
+
+    MANTLE_SOURCE_INLINE
+    size_t RegionController::route_operations(const OperationType type, std::span<Object*> objects) {
+        for (Object* object : objects) {
+            const Operation operation = make_operation(object, type);
+
+            const RegionId region_id = object->region_id();
+            if (UNLIKELY(region_id >= controllers_.size())) {
+                abort();
+            }
+
+            RegionController& controller = *controllers_[region_id];
+            controller.operation_grouper_.write(operation, false);
+        }
+
+        return objects.size();
     }
 
     MANTLE_SOURCE_INLINE
