@@ -43,10 +43,10 @@ namespace mantle {
             // The operation doesn't need to be re-encoded which makes this
             // much simpler than flushing an operation group.
             if (operation.type() == OperationType::INCREMENT) {
-                increments_.emplace_back(operation.mutable_object(), operation.value());
+                increments_.emplace_back(object, operation.value());
             }
             else {
-                decrements_.emplace_back(operation.mutable_object(), operation.value());
+                decrements_.emplace_back(object, operation.value());
             }
         }
         else {
