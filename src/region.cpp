@@ -42,6 +42,7 @@ namespace mantle {
         , cycle_(INITIAL_CYCLE)
         , depth_(0)
         , finalizer_(finalizer)
+        , ledger_(domain.write_barrier_manager())
         , operation_ledger_(domain.config().ledger_capacity)
     {
         // Register ourselves as the region on this thread.
@@ -118,7 +119,7 @@ namespace mantle {
         // Start a new cycle if needed. We need to be in the initial phase, and have a reason to do it.
         bool start_cycle = true;
         start_cycle &= phase_ == INITIAL_PHASE;
-        start_cycle &= cycle_ == INITIAL_CYCLE || (state_ == State::STOPPING || !operation_ledger_.is_empty());
+        start_cycle &= cycle_ == INITIAL_CYCLE || (state_ == State::STOPPING || !ledger_.is_empty() || !operation_ledger_.is_empty());
         if (start_cycle) {
             region_endpoint().send_message(
                 Message {
@@ -175,6 +176,7 @@ namespace mantle {
 
                 // Wrap up the current transaction and submit ranges of operations
                 // that can be applied.
+                ledger_.step();
                 operation_ledger_.commit_transaction();
                 {
                     // Check if the region is ready to stop.
@@ -189,7 +191,7 @@ namespace mantle {
                                 .stop          = stop,
                                 .increments    = operation_ledger_.transaction_log().select(0),
                                 .decrements    = operation_ledger_.transaction_log().select(2),
-                                .write_barrier = nullptr,
+                                .write_barrier = &ledger_.barrier(WriteBarrierPhase::APPLY),
                             },
                         }
                     );

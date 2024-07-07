@@ -6,6 +6,7 @@
 #include <cassert>
 #include "mantle/types.h"
 #include "mantle/util.h"
+#include "mantle/ledger.h"
 #include "mantle/message.h"
 #include "mantle/connection.h"
 #include "mantle/operation.h"
@@ -111,6 +112,7 @@ namespace mantle {
         size_t                      depth_;
 
         ObjectFinalizer&            finalizer_;
+        Ledger                      ledger_;
         OperationLedger             operation_ledger_;
 
         std::optional<ObjectGroups> garbage_;
