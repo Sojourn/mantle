@@ -83,7 +83,7 @@ namespace mantle {
     private:
         friend class Domain;
 
-        const OperationLedger& ledger() const;
+        const OperationLedger& operation_ledger() const;
 
         Endpoint& domain_endpoint();
         Endpoint& region_endpoint();
@@ -111,7 +111,7 @@ namespace mantle {
         size_t                      depth_;
 
         ObjectFinalizer&            finalizer_;
-        OperationLedger             ledger_;
+        OperationLedger             operation_ledger_;
 
         std::optional<ObjectGroups> garbage_;
         std::vector<Object*>        garbage_pile_;
@@ -130,7 +130,7 @@ namespace mantle {
         assert(operation.type() == OperationType::INCREMENT);
 
         // Fast-path: The operation can be added to the current transaction.
-        if (LIKELY(ledger_.write(operation))) {
+        if (LIKELY(operation_ledger_.write(operation))) {
             return;
         }
 
@@ -142,7 +142,7 @@ namespace mantle {
         assert(operation.type() == OperationType::DECREMENT);
 
         // Fast-path: The operation can be added to the current transaction.
-        if (LIKELY(ledger_.write(operation))) {
+        if (LIKELY(operation_ledger_.write(operation))) {
             return;
         }
 

@@ -42,7 +42,7 @@ namespace mantle {
         , cycle_(INITIAL_CYCLE)
         , depth_(0)
         , finalizer_(finalizer)
-        , ledger_(domain.config().ledger_capacity)
+        , operation_ledger_(domain.config().ledger_capacity)
     {
         // Register ourselves as the region on this thread.
         {
@@ -56,7 +56,7 @@ namespace mantle {
 
         // Synchronize with other regions until our cycle and phase match.
         {
-            ledger_.begin_transaction();
+            operation_ledger_.begin_transaction();
 
             id_ = domain_.bind(*this);
             while (cycle_ == INITIAL_CYCLE) {
@@ -118,7 +118,7 @@ namespace mantle {
         // Start a new cycle if needed. We need to be in the initial phase, and have a reason to do it.
         bool start_cycle = true;
         start_cycle &= phase_ == INITIAL_PHASE;
-        start_cycle &= cycle_ == INITIAL_CYCLE || (state_ == State::STOPPING || !ledger_.is_empty());
+        start_cycle &= cycle_ == INITIAL_CYCLE || (state_ == State::STOPPING || !operation_ledger_.is_empty());
         if (start_cycle) {
             region_endpoint().send_message(
                 Message {
@@ -144,12 +144,12 @@ namespace mantle {
         do {
             constexpr bool non_blocking = false;
             step(non_blocking);
-        } while (!ledger_.write(operation));
+        } while (!operation_ledger_.write(operation));
     }
 
     MANTLE_SOURCE_INLINE
-    const OperationLedger& Region::ledger() const {
-        return ledger_;
+    const OperationLedger& Region::operation_ledger() const {
+        return operation_ledger_;
     }
 
     MANTLE_SOURCE_INLINE
@@ -175,26 +175,26 @@ namespace mantle {
 
                 // Wrap up the current transaction and submit ranges of operations
                 // that can be applied.
-                ledger_.commit_transaction();
+                operation_ledger_.commit_transaction();
                 {
                     // Check if the region is ready to stop.
                     bool stop = true;
                     stop &= state_ == State::STOPPING;
-                    stop &= ledger_.is_empty();
+                    stop &= operation_ledger_.is_empty();
 
                     region_endpoint().send_message(
                         Message {
                             .submit = {
                                 .type          = MessageType::SUBMIT,
                                 .stop          = stop,
-                                .increments    = ledger_.transaction_log().select(0),
-                                .decrements    = ledger_.transaction_log().select(2),
+                                .increments    = operation_ledger_.transaction_log().select(0),
+                                .decrements    = operation_ledger_.transaction_log().select(2),
                                 .write_barrier = nullptr,
                             },
                         }
                     );
                 }
-                ledger_.begin_transaction();
+                operation_ledger_.begin_transaction();
 
                 transition(message.enter.cycle);
                 transition(Phase::RECV_RETIRE);

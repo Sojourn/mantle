@@ -150,7 +150,7 @@ namespace mantle {
                 auto controller = std::make_unique<RegionController>(
                     region_id,
                     controllers_,
-                    region.ledger(),
+                    region.operation_ledger(),
                     write_barrier_manager_,
                     config_
                 );
