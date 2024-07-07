@@ -190,7 +190,7 @@ namespace mantle {
                                 .stop          = stop,
                                 .increments    = operation_ledger_.transaction_log().select(0),
                                 .decrements    = operation_ledger_.transaction_log().select(2),
-                                .write_barrier = &ledger_.commit,
+                                .write_barrier = &ledger_.commit(),
                             },
                         }
                     );
