@@ -185,10 +185,11 @@ namespace mantle {
                     region_endpoint().send_message(
                         Message {
                             .submit = {
-                                .type       = MessageType::SUBMIT,
-                                .stop       = stop,
-                                .increments = ledger_.transaction_log().select(0),
-                                .decrements = ledger_.transaction_log().select(2),
+                                .type          = MessageType::SUBMIT,
+                                .stop          = stop,
+                                .increments    = ledger_.transaction_log().select(0),
+                                .decrements    = ledger_.transaction_log().select(2),
+                                .write_barrier = nullptr,
                             },
                         }
                     );

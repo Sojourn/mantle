@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cassert>
 #include "mantle/types.h"
+#include "mantle/ledger.h"
 #include "mantle/operation.h"
 
 #define MANTLE_MESSAGE_TYPES(X) \
@@ -44,6 +45,9 @@ namespace mantle {
             bool          stop; // The region is ready to stop.
             SequenceRange increments;
             SequenceRange decrements;
+
+            // This will eventually replace increments and decrements.
+            WriteBarrier* write_barrier;
         } submit;
 
         // domain -> region

@@ -22,10 +22,11 @@ static void deliver_start_message(RegionControllerGroup& controllers, RegionId r
 static void deliver_submit_message(RegionControllerGroup& controllers, RegionId region_id, SequenceRange increments, SequenceRange decrements) {
     Message message = {
         .submit = {
-            .type       = MessageType::SUBMIT,
-            .stop       = false,
-            .increments = increments,
-            .decrements = decrements,
+            .type          = MessageType::SUBMIT,
+            .stop          = false,
+            .increments    = increments,
+            .decrements    = decrements,
+            .write_barrier = nullptr,
         },
     };
 

@@ -135,6 +135,7 @@ namespace mantle {
         , cycle_(0)
         , submitted_increments_(EMPTY_SEQUENCE_RANGE)
         , submitted_decrements_(EMPTY_SEQUENCE_RANGE)
+        , write_barrier_(nullptr)
         , metrics_(operation_grouper_, object_grouper_)
     {
     }
@@ -286,6 +287,7 @@ namespace mantle {
 
                     submitted_increments_ = message.submit.increments;
                     submitted_decrements_ = message.submit.decrements;
+                    write_barrier_ = message.submit.write_barrier;
                 }
                 break; // Redundant start messages are dropped.
             }

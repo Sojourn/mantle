@@ -217,7 +217,7 @@ namespace mantle {
 
         SequenceRange          submitted_increments_;
         SequenceRange          submitted_decrements_;
-
+        WriteBarrier*          write_barrier_;
         OperationGrouper       operation_grouper_;
         ObjectGrouper          object_grouper_;
 
