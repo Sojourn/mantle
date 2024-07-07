@@ -394,7 +394,7 @@ namespace mantle {
     }
 
     MANTLE_SOURCE_INLINE
-    void Ledger::step() {
+    WriteBarrier& Ledger::commit() {
         increment_barrier().commit();
         decrement_barrier().commit();
 
@@ -404,6 +404,8 @@ namespace mantle {
 
         increment_cursor_.store(increment_barrier().back()->cursor(), std::memory_order_release);
         decrement_cursor_.store(decrement_barrier().back()->cursor(), std::memory_order_release);
+
+        return barrier(WriteBarrierPhase::APPLY);
     }
 
 }

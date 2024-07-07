@@ -40,7 +40,7 @@ TEST_CASE("Ledger") {
             CHECK(ledger.increment_barrier().is_empty());
             CHECK(!ledger.decrement_barrier().is_empty());
 
-            ledger.step();
+            ledger.commit();
             CHECK(!ledger.is_empty());
             CHECK(ledger.increment_barrier().is_empty());
             CHECK(ledger.decrement_barrier().is_empty());
@@ -51,7 +51,7 @@ TEST_CASE("Ledger") {
             CHECK(ledger.decrement_barrier().is_empty());
 
             // The first decrement barrier becomes the new increment barrier.
-            ledger.step();
+            ledger.commit();
             CHECK(!ledger.is_empty());
             CHECK(!ledger.increment_barrier().is_empty());
             CHECK(ledger.decrement_barrier().is_empty());
@@ -66,7 +66,7 @@ TEST_CASE("Ledger") {
             WriteBarrier& inc_barrier = ledger.increment_barrier();
             WriteBarrier& dec_barrier = ledger.decrement_barrier();
 
-            ledger.step();
+            ledger.commit();
 
             CHECK(counts(inc_barrier).increment_count == 2);
             CHECK(counts(dec_barrier).decrement_count == 2);

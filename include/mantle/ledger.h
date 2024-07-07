@@ -182,7 +182,8 @@ namespace mantle {
         WriteBarrier& increment_barrier();
         WriteBarrier& decrement_barrier();
 
-        void step();
+        // Advances barrier phases and returns a barrier that can be applied.
+        WriteBarrier& commit();
 
     private:
         AtomicSequence       sequence_;

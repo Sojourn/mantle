@@ -25,13 +25,13 @@ int main(int argc, char** argv) {
                 for (size_t i = 0; i < k; ++i) {
                     decrement_ref_cnt(object);
                 }
-                ledger.step();
-                ledger.step();
+                ledger.commit();
+                ledger.commit();
 
                 for (size_t i = 0; i < j; ++i) {
                     increment_ref_cnt(object);
                 }
-                ledger.step();
+                ledger.commit();
 
                 assert(barrier.increment_count() == j);
                 assert(barrier.decrement_count() == k);

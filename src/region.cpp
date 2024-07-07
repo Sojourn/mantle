@@ -176,7 +176,6 @@ namespace mantle {
 
                 // Wrap up the current transaction and submit ranges of operations
                 // that can be applied.
-                ledger_.step();
                 operation_ledger_.commit_transaction();
                 {
                     // Check if the region is ready to stop.
@@ -191,7 +190,7 @@ namespace mantle {
                                 .stop          = stop,
                                 .increments    = operation_ledger_.transaction_log().select(0),
                                 .decrements    = operation_ledger_.transaction_log().select(2),
-                                .write_barrier = &ledger_.barrier(WriteBarrierPhase::APPLY),
+                                .write_barrier = &ledger_.commit,
                             },
                         }
                     );
