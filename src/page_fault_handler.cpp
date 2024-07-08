@@ -6,8 +6,6 @@ namespace mantle {
     MANTLE_SOURCE_INLINE
     PageFaultHandler::PageFaultHandler()
         : file_descriptor_(-1)
-        , has_feature_thread_id_(false)
-        , has_feature_exact_address_(false)
     {
         file_descriptor_ = static_cast<int>(syscall(SYS_userfaultfd, O_CLOEXEC | O_NONBLOCK | UFFD_USER_MODE_ONLY));
         if (file_descriptor_ < 0) {
@@ -17,7 +15,7 @@ namespace mantle {
         // API handshake and feature detection must happen before we use the file descriptor.
         {
             constexpr uint64_t required_features = 0;
-            constexpr uint64_t optional_features = UFFD_FEATURE_THREAD_ID|UFFD_FEATURE_EXACT_ADDRESS;
+            constexpr uint64_t optional_features = 0;
 
             struct uffdio_api uffdio_api;
             memset(&uffdio_api, 0, sizeof(uffdio_api));
@@ -31,9 +29,6 @@ namespace mantle {
             if ((uffdio_api.features & required_features) != required_features) {
                 throw std::runtime_error("FaultHandler API missing required features");
             }
-
-            has_feature_thread_id_ = static_cast<bool>(uffdio_api.features & UFFD_FEATURE_THREAD_ID);
-            has_feature_exact_address_ = static_cast<bool>(uffdio_api.features & UFFD_FEATURE_EXACT_ADDRESS);
 
             assert(uffdio_api.ioctls & (1ull << _UFFDIO_API));
             assert(uffdio_api.ioctls & (1ull << _UFFDIO_REGISTER));

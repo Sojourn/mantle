@@ -53,9 +53,7 @@ namespace mantle {
         static uint64_t translate(const std::initializer_list<Mode> modes);
 
     private:
-        int  file_descriptor_;
-        bool has_feature_thread_id_;
-        bool has_feature_exact_address_;
+        int file_descriptor_;
     };
 
     template<typename Handler>
