@@ -174,6 +174,8 @@ namespace mantle {
             case MessageType::ENTER: {
                 assert((phase_ == Phase::RECV_ENTER) || (phase_ == Phase::RECV_ENTER_SENT_START));
 
+                WriteBarrier& write_barrier = ledger_.commit();
+
                 // Wrap up the current transaction and submit ranges of operations
                 // that can be applied.
                 operation_ledger_.commit_transaction();
@@ -181,6 +183,7 @@ namespace mantle {
                     // Check if the region is ready to stop.
                     bool stop = true;
                     stop &= state_ == State::STOPPING;
+                    stop &= ledger_.is_empty();
                     stop &= operation_ledger_.is_empty();
 
                     region_endpoint().send_message(
@@ -190,7 +193,7 @@ namespace mantle {
                                 .stop          = stop,
                                 .increments    = operation_ledger_.transaction_log().select(0),
                                 .decrements    = operation_ledger_.transaction_log().select(2),
-                                .write_barrier = &ledger_.commit(),
+                                .write_barrier = &write_barrier,
                             },
                         }
                     );
