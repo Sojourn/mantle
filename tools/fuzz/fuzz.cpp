@@ -58,11 +58,12 @@ auto TestObjectAllocator::metrics() -> Metrics& {
     return metrics_;
 }
 
-Handle<TestObject> TestObjectAllocator::allocate_object() {
-    TestObject* object = new TestObject;
-    object->birth_count += 1; 
+Ref<TestObject> TestObjectAllocator::allocate_object() {
+    Ref<TestObject> object = bind(*(new TestObject));
+
+    object->birth_count += 1;
     metrics_.allocation_success_count += 1;
-    return make_handle(*object);
+    return object;
 }
 
 
@@ -190,26 +191,25 @@ void WorkerThread::step(Region& region) {
             break;
         }
         case ActionType::MAKE: { // Allocate an object and add it to the working set.
-            if (Handle<TestObject> object = object_allocator_.allocate_object()) {
-                action.object = object.get();
-                working_set_.push_back(std::move(object));
-            }
+            Ref<TestObject> object = object_allocator_.allocate_object();
+            action.object = object.get();
+            working_set_.push_back(std::move(object));
             break;
         }
         case ActionType::REAP: { // Finalize the object. This happens on a different code-path.
             return;
         }
-        case ActionType::DROP: { // Remove an object handle from the working set.
+        case ActionType::DROP: { // Remove ref from the working set.
             if (!working_set_.empty()) {
-                Handle<TestObject> object = std::move(working_set_.back());
+                Ref<TestObject> object = std::move(working_set_.back());
                 working_set_.pop_back();
                 action.object = object.get();
             }
             break;
         }
-        case ActionType::COPY: { // Add another handle for the object to the working set.
+        case ActionType::COPY: { // Add another ref for the object to the working set.
             if (!working_set_.empty() && (working_set_.size() < driver_.settings().working_set_size)) {
-                Handle<TestObject> object = working_set_.back();
+                Ref<TestObject> object = working_set_.back();
                 action.object = object.get();
                 working_set_.push_back(std::move(object));
             }
@@ -217,15 +217,14 @@ void WorkerThread::step(Region& region) {
         }
         case ActionType::POKE: { // Generate local increment/decrement activity.
             if (!working_set_.empty()) {
-                Handle<TestObject> object = working_set_.back();
+                Ref<TestObject> object = working_set_.back();
                 action.object = object.get();
-                object.reset();
             }
             break;
         }
         case ActionType::SEND: { // Send an object (put one from our working set in a region's inbox).
             if (!working_set_.empty()) {
-                Handle<TestObject> object = working_set_.back();
+                Ref<TestObject> object = working_set_.back();
                 action.object = object.get();
                 action.target_region_id = action_generator_.random_target();
 
@@ -241,10 +240,10 @@ void WorkerThread::step(Region& region) {
         case ActionType::RECV: { // Receive an object (check our inbox).
             Packet packet;
             if (receive(packet)) {
-                action.object = packet.object.get();
+                action.object = packet.object->get();
                 action.source_region_id = packet.source_region_id;
 
-                working_set_.push_back(std::move(packet.object));
+                working_set_.push_back(*packet.object);
             }
             break;
         }

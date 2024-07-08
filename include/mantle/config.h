@@ -18,7 +18,10 @@ namespace mantle {
     // FIXME: Some architectures have cache lines that are 128 bytes. We should detect this.
     constexpr size_t CACHE_LINE_SIZE = 64;
 
-    constexpr size_t WRITE_BARRIER_CAPACITY = 128 * 1024;
+    // This trades off memory usage for a reduced number of write protection faults
+    // that need to be handled to extend write barriers.
+    // Ideally this is sized such that write protection faults never happen in steady state.
+    constexpr size_t WRITE_BARRIER_SEGMENT_CAPACITY = 16 * 1024;
 
     struct Config {
         std::optional<std::span<size_t>> domain_cpu_affinity;

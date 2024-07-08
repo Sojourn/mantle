@@ -71,4 +71,23 @@ TEST_CASE("Ref") {
         }
         CHECK(finalizer.count == 1);
     }
+
+    SECTION("Reference collections") {
+        constexpr size_t count = 1000 * 1000; // 1M
+
+        {
+            Domain domain;
+            Region region(domain, finalizer);
+
+            {
+                std::vector<Ref<Object>> refs;
+                refs.reserve(count);
+                for (size_t i = 0; i < count; ++i) {
+                    refs.push_back(make_object_ref());
+                }
+            }
+            CHECK(finalizer.count == 0);
+        }
+        CHECK(finalizer.count == count);
+    }
 }

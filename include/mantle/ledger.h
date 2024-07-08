@@ -79,7 +79,8 @@ namespace mantle {
         std::span<std::byte> guard_page();
     };
 
-    // Rename to WriteBarrierStack?
+    // A segmented object pointer vector. Bounds checking is performed indirectly
+    // using the MMU (memory management unit) via guard pages at the end of segments.
     class WriteBarrier {
     public:
         using Phase = WriteBarrierPhase;
@@ -117,13 +118,11 @@ namespace mantle {
     private:
         Ledger&              ledger_;
         size_t               phase_shift_;
-        WriteBarrierSegment* stack_; // Top of the stack.
+        WriteBarrierSegment* stack_; // Pointer to the top stack segment.
     };
 
     class WriteBarrierManager {
     public:
-        WriteBarrierManager();
-
         [[nodiscard]]
         int file_descriptor();
         void poll(bool non_blocking);

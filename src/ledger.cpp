@@ -46,7 +46,7 @@ namespace mantle {
     WriteBarrierSegment::WriteBarrierSegment()
         : prev(nullptr)
         , barrier(nullptr)
-        , mapping(WRITE_BARRIER_CAPACITY * sizeof(Object*), true)
+        , mapping(WRITE_BARRIER_SEGMENT_CAPACITY * sizeof(Object*), true)
         , primed(false)
         , increment_count(0)
         , decrement_count(0)
@@ -233,17 +233,12 @@ namespace mantle {
     }
 
     MANTLE_SOURCE_INLINE
-    WriteBarrierManager::WriteBarrierManager() {
-        // TODO: Size the segment storage/pool based on the number of threads.
-    }
-
-    MANTLE_SOURCE_INLINE
     int WriteBarrierManager::file_descriptor() {
         return page_fault_handler_.file_descriptor();
     }
 
     MANTLE_SOURCE_INLINE
-    void WriteBarrierManager::poll(bool non_blocking) {
+    void WriteBarrierManager::poll(const bool non_blocking) {
         page_fault_handler_.poll([this](std::span<const std::byte> memory, PageFaultHandler::Mode mode) {
             if (mode == PageFaultHandler::Mode::WRITE_PROTECT) {
                 WriteBarrierSegment* prev_segment;
@@ -321,6 +316,7 @@ namespace mantle {
         segment.increment_count = 0;
         segment.decrement_count = 0;
 
+        // TODO: Limit the maximum capacity of this (with a config parameter).
         segment_pool_.push_back(&segment);
     }
 

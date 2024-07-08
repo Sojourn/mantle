@@ -93,7 +93,7 @@ public:
 
     Metrics& metrics();
 
-    Handle<TestObject> allocate_object();
+Ref<TestObject> allocate_object();
 
     void finalize(ObjectGroup, std::span<Object*> objects) noexcept override;
 
@@ -137,8 +137,8 @@ private:
     friend class TestObjectAllocator;
 
     struct Packet {
-        RegionId           source_region_id;
-        Handle<TestObject> object;
+        RegionId                       source_region_id;
+        std::optional<Ref<TestObject>> object;
     };
 
     void step(Region& region);
@@ -150,7 +150,7 @@ private:
 
 private:
     using Inbox = std::deque<Packet>;
-    using WorkingSet = std::vector<Handle<TestObject>>;
+    using WorkingSet = std::vector<Ref<TestObject>>;
 
     Driver&             driver_;
     std::thread         thread_;

@@ -65,6 +65,14 @@ namespace mantle {
             decrement_ref_cnt(*object_);
         }
 
+        T* get() noexcept {
+            return object_;
+        }
+
+        const T* get() const noexcept {
+            return object_;
+        }
+
         T& operator*() noexcept {
             return *object_;
         }
