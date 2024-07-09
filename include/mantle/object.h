@@ -30,8 +30,6 @@ namespace mantle {
     private:
         template<typename T>
         friend class Ref;
-        template<typename T>
-        friend class Handle;
         friend class Region;
         friend class RegionController;
 
@@ -40,12 +38,6 @@ namespace mantle {
         // can only be bound once, when a handle to it is first created.
         //
         void bind(RegionId region_id);
-
-        // Submit an operation to the `Region` who will forward it to the `Domain`.
-        void start_increment_operation(uint8_t exponent);
-        void start_increment_operation(Operation operation);
-        void start_decrement_operation(uint8_t exponent);
-        void start_decrement_operation(Operation operation);
 
         // Update the reference count of this `Object` by the given magnitude.
         // These functions return `true` if the reference count remains positive.

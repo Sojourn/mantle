@@ -72,14 +72,6 @@ namespace mantle {
         void step(bool non_blocking);
 
     private:
-        friend class Object;
-
-        MANTLE_HOT void start_increment_operation(Object& object, Operation operation);
-        MANTLE_HOT void start_decrement_operation(Object& object, Operation operation);
-
-        MANTLE_COLD void flush_operation(Operation operation);
-
-    private:
         friend class Domain;
 
         const OperationLedger& operation_ledger() const;
@@ -124,30 +116,6 @@ namespace mantle {
             return instance;
         }
     };
-
-    inline void Region::start_increment_operation(Object&, Operation operation) {
-        assert(state_ != State::STOPPED);
-        assert(operation.type() == OperationType::INCREMENT);
-
-        // Fast-path: The operation can be added to the current transaction.
-        if (LIKELY(operation_ledger_.write(operation))) {
-            return;
-        }
-
-        flush_operation(operation);
-    }
-
-    inline void Region::start_decrement_operation(Object&, Operation operation) {
-        assert(state_ != State::STOPPED);
-        assert(operation.type() == OperationType::DECREMENT);
-
-        // Fast-path: The operation can be added to the current transaction.
-        if (LIKELY(operation_ledger_.write(operation))) {
-            return;
-        }
-
-        flush_operation(operation);
-    }
 
     std::string_view to_string(RegionState state);
     std::string_view to_string(RegionPhase phase);

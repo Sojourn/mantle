@@ -141,14 +141,6 @@ namespace mantle {
     }
 
     MANTLE_SOURCE_INLINE
-    void Region::flush_operation(Operation operation) {
-        do {
-            constexpr bool non_blocking = false;
-            step(non_blocking);
-        } while (!operation_ledger_.write(operation));
-    }
-
-    MANTLE_SOURCE_INLINE
     const OperationLedger& Region::operation_ledger() const {
         return operation_ledger_;
     }

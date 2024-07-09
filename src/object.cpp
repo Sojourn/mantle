@@ -48,40 +48,6 @@ namespace mantle {
     }
 
     MANTLE_SOURCE_INLINE
-    void Object::start_increment_operation(uint8_t exponent) {
-        start_increment_operation(make_increment_operation(this, exponent));
-    }
-
-    MANTLE_SOURCE_INLINE
-    void Object::start_increment_operation(Operation operation) {
-        assert(operation.type() == OperationType::INCREMENT);
-
-        if (Region* region = Region::thread_local_instance(); LIKELY(region)) {
-            region->start_increment_operation(*this, operation);
-        }
-        else {
-            // Leak.
-        }
-    }
-
-    MANTLE_SOURCE_INLINE
-    void Object::start_decrement_operation(uint8_t exponent) {
-        start_decrement_operation(make_decrement_operation(this, exponent));
-    }
-
-    MANTLE_SOURCE_INLINE
-    void Object::start_decrement_operation(Operation operation) {
-        assert(operation.type() == OperationType::DECREMENT);
-
-        if (Region* region = Region::thread_local_instance(); LIKELY(region)) {
-            region->start_decrement_operation(*this, operation);
-        }
-        else {
-            // Leak.
-        }
-    }
-
-    MANTLE_SOURCE_INLINE
     bool Object::apply_increment(const uint32_t delta_magnitude) {
         reference_count_ += delta_magnitude;
         return true;
