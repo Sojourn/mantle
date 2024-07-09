@@ -37,6 +37,7 @@ namespace mantle {
     ;
 
     // This is a simple RAII wrapper around a private anonymous memory mapping.
+    // It is used as backing storage for write barrier segments to ensure page alignment.
     class PrivateMemoryMapping {
     public:
         explicit PrivateMemoryMapping(size_t size, bool populate = true);
@@ -57,6 +58,8 @@ namespace mantle {
         std::span<std::byte> memory_;
     };
 
+    // An object pointer vector. It is divided into increment and decrement sections
+    // which are written in their respective phases.
     struct WriteBarrierSegment {
         WriteBarrierSegment* prev;
         WriteBarrier*        barrier;
