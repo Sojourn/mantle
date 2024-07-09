@@ -293,7 +293,6 @@ namespace mantle {
         std::scoped_lock lock(segment_pool_mutex_);
 
         WriteBarrierSegment* segment = nullptr;
-
         if (UNLIKELY(segment_pool_.empty())) {
             segment = segment_pool_storage_.emplace_back(std::make_unique<WriteBarrierSegment>()).get();
             page_fault_handler_.register_memory(segment->guard_page(), {PageFaultHandler::Mode::WRITE_PROTECT});

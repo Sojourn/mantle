@@ -8,9 +8,9 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "mantle/config.h"
 #include "mantle/types.h"
 #include "mantle/util.h"
+#include "mantle/config.h"
 #include "mantle/page_fault_handler.h"
 
 #define WRITE_BARRIER_PHASES(X) \
