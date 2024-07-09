@@ -72,8 +72,6 @@ namespace mantle {
         void step(bool non_blocking);
 
     private:
-        template<typename T>
-        friend class Handle;
         friend class Object;
 
         MANTLE_HOT void start_increment_operation(Object& object, Operation operation);
