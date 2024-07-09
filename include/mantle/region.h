@@ -1,6 +1,7 @@
 #pragma once
 
 #include <span>
+#include <optional>
 #include <string_view>
 #include <utility>
 #include <cassert>
