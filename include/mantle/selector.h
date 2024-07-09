@@ -13,7 +13,7 @@ namespace mantle {
 
     public:
         Selector();
-        ~Selector();        
+        ~Selector();
 
         // Returns an array of user-data corresponding to file descriptors that are ready-to-read.
         std::span<void*> poll(bool non_blocking);
