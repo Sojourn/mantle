@@ -9,10 +9,11 @@ This library implements reference counted smart pointers in a way that attempts 
 ## Codegen
 ```
 void copy(Ref<Object>& dst, const Ref<Object>& src) {
-    // Decrement dst and increment src.
-    dst = src;
+    dst = src; // Decrements dst and increments src.
 }
+```
 
+```
 copy(mantle::Ref<mantle::Object>&, mantle::Ref<mantle::Object> const&):
         mov     rdx, QWORD PTR [rdi]
         mov     rax, QWORD PTR fs:mantle::Ledger::local_decrement_cursor()::cursor@tpoff
