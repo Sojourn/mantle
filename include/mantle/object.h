@@ -30,7 +30,6 @@ namespace mantle {
     private:
         template<typename T>
         friend class Ref;
-        friend class Region;
         friend class RegionController;
 
         // Associate this `Object` to the local `Region`. Reference counting
