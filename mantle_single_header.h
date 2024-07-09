@@ -68,22 +68,6 @@
 #  define MANTLE_WRITE_BARRIER_SEGMENT_CAPACITY (16 * 1024)
 #endif
 
-namespace mantle {
-
-    // TODO: Remove this.
-    struct Config {
-        std::optional<std::span<size_t>> domain_cpu_affinity;
-
-        // The maximum number of pending operations per-region.
-        size_t ledger_capacity = 1024 * 1024;
-
-        // This enables the grouper which tries to consolidate operations on the same object.
-        // and net their effects to reduce the number of operations that need to be retired/applied.
-        bool operation_grouper_enabled = true;
-    };
-
-}
-
 
 // include/mantle/types.h
 
@@ -1609,8 +1593,7 @@ namespace mantle {
         RegionController(
             RegionId region_id,
             RegionControllerGroup& controllers,
-            WriteBarrierManager& write_barrier_manager,
-            const Config& config
+            WriteBarrierManager& write_barrier_manager
         );
 
         RegionController(RegionController&&) = delete;
@@ -1646,7 +1629,6 @@ namespace mantle {
         RegionId               region_id_;
         RegionControllerGroup& controllers_;
         WriteBarrierManager&   write_barrier_manager_;
-        const Config&          config_;
 
         State                  state_;
         Phase                  phase_;
@@ -1791,16 +1773,13 @@ namespace mantle {
         friend class Region;
 
     public:
-        explicit Domain(const Config& config = Config());
+        explicit Domain(std::optional<std::span<size_t>> thread_cpu_affinity = std::nullopt);
         ~Domain();
 
         Domain(Domain&&) = delete;
         Domain(const Domain&) = delete;
         Domain& operator=(Domain&&) = delete;
         Domain& operator=(const Domain&) = delete;
-
-        [[nodiscard]]
-        const Config& config() const;
 
         [[nodiscard]]
         WriteBarrierManager& write_barrier_manager();
@@ -1817,7 +1796,6 @@ namespace mantle {
         RegionId bind(Region& region);
 
     private:
-        Config                 config_;
         std::thread            thread_;
 
         std::mutex             regions_mutex_;
@@ -3171,13 +3149,11 @@ inline
     RegionController::RegionController(
         const RegionId region_id,
         RegionControllerGroup& controllers,
-        WriteBarrierManager& write_barrier_manager,
-        const Config& config
+        WriteBarrierManager& write_barrier_manager
     )
         : region_id_(region_id)
         , controllers_(controllers)
         , write_barrier_manager_(write_barrier_manager)
-        , config_(config)
         , state_(State::STARTING)
         , phase_(Phase::START)
         , cycle_(0)
@@ -3623,9 +3599,8 @@ inline
 namespace mantle {
 
 inline
-    Domain::Domain(const Config& config)
-        : config_(config)
-        , running_(false)
+    Domain::Domain(std::optional<std::span<size_t>> thread_cpu_affinity)
+        : running_(false)
     {
         selector_.add_watch(doorbell_.file_descriptor(), &doorbell_);
         selector_.add_watch(write_barrier_manager_.file_descriptor(), &write_barrier_manager_);
@@ -3633,11 +3608,11 @@ inline
         std::promise<void> init_promise;
         std::future<void> init_future = init_promise.get_future();
 
-        thread_ = std::thread([init_promise = std::move(init_promise), this]() mutable {
+        thread_ = std::thread([init_promise = std::move(init_promise), thread_cpu_affinity, this]() mutable {
             try {
                 debug("[domain] initializing thread");
-                if (config_.domain_cpu_affinity) {
-                    set_cpu_affinity(*config_.domain_cpu_affinity);
+                if (thread_cpu_affinity) {
+                    set_cpu_affinity(*thread_cpu_affinity);
                 }
 
                 init_promise.set_value();
@@ -3658,11 +3633,6 @@ inline
 inline
     Domain::~Domain() {
         thread_.join();
-    }
-
-inline
-    const Config& Domain::config() const {
-        return config_;
     }
 
 inline
@@ -3765,8 +3735,7 @@ inline
                 auto controller = std::make_unique<RegionController>(
                     region_id,
                     controllers_,
-                    write_barrier_manager_,
-                    config_
+                    write_barrier_manager_
                 );
 
                 controller->start(census.max_cycle());

@@ -8,9 +8,8 @@
 namespace mantle {
 
     MANTLE_SOURCE_INLINE
-    Domain::Domain(const Config& config)
-        : config_(config)
-        , running_(false)
+    Domain::Domain(std::optional<std::span<size_t>> thread_cpu_affinity)
+        : running_(false)
     {
         selector_.add_watch(doorbell_.file_descriptor(), &doorbell_);
         selector_.add_watch(write_barrier_manager_.file_descriptor(), &write_barrier_manager_);
@@ -18,11 +17,11 @@ namespace mantle {
         std::promise<void> init_promise;
         std::future<void> init_future = init_promise.get_future();
 
-        thread_ = std::thread([init_promise = std::move(init_promise), this]() mutable {
+        thread_ = std::thread([init_promise = std::move(init_promise), thread_cpu_affinity, this]() mutable {
             try {
                 debug("[domain] initializing thread");
-                if (config_.domain_cpu_affinity) {
-                    set_cpu_affinity(*config_.domain_cpu_affinity);
+                if (thread_cpu_affinity) {
+                    set_cpu_affinity(*thread_cpu_affinity);
                 }
 
                 init_promise.set_value();
@@ -43,11 +42,6 @@ namespace mantle {
     MANTLE_SOURCE_INLINE
     Domain::~Domain() {
         thread_.join();
-    }
-
-    MANTLE_SOURCE_INLINE
-    const Config& Domain::config() const {
-        return config_;
     }
 
     MANTLE_SOURCE_INLINE
@@ -150,8 +144,7 @@ namespace mantle {
                 auto controller = std::make_unique<RegionController>(
                     region_id,
                     controllers_,
-                    write_barrier_manager_,
-                    config_
+                    write_barrier_manager_
                 );
 
                 controller->start(census.max_cycle());

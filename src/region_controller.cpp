@@ -121,13 +121,11 @@ namespace mantle {
     RegionController::RegionController(
         const RegionId region_id,
         RegionControllerGroup& controllers,
-        WriteBarrierManager& write_barrier_manager,
-        const Config& config
+        WriteBarrierManager& write_barrier_manager
     )
         : region_id_(region_id)
         , controllers_(controllers)
         , write_barrier_manager_(write_barrier_manager)
-        , config_(config)
         , state_(State::STARTING)
         , phase_(Phase::START)
         , cycle_(0)

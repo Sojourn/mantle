@@ -1,8 +1,9 @@
 #pragma once
 
-#include <mutex>
-#include <thread>
+#include <optional>
 #include <vector>
+#include <thread>
+#include <mutex>
 #include "mantle/types.h"
 #include "mantle/config.h"
 #include "mantle/doorbell.h"
@@ -19,16 +20,13 @@ namespace mantle {
         friend class Region;
 
     public:
-        explicit Domain(const Config& config = Config());
+        explicit Domain(std::optional<std::span<size_t>> thread_cpu_affinity = std::nullopt);
         ~Domain();
 
         Domain(Domain&&) = delete;
         Domain(const Domain&) = delete;
         Domain& operator=(Domain&&) = delete;
         Domain& operator=(const Domain&) = delete;
-
-        [[nodiscard]]
-        const Config& config() const;
 
         [[nodiscard]]
         WriteBarrierManager& write_barrier_manager();
@@ -45,7 +43,6 @@ namespace mantle {
         RegionId bind(Region& region);
 
     private:
-        Config                 config_;
         std::thread            thread_;
 
         std::mutex             regions_mutex_;

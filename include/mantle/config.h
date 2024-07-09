@@ -24,19 +24,3 @@
 #ifndef MANTLE_WRITE_BARRIER_SEGMENT_CAPACITY
 #  define MANTLE_WRITE_BARRIER_SEGMENT_CAPACITY (16 * 1024)
 #endif
-
-namespace mantle {
-
-    // TODO: Remove this.
-    struct Config {
-        std::optional<std::span<size_t>> domain_cpu_affinity;
-
-        // The maximum number of pending operations per-region.
-        size_t ledger_capacity = 1024 * 1024;
-
-        // This enables the grouper which tries to consolidate operations on the same object.
-        // and net their effects to reduce the number of operations that need to be retired/applied.
-        bool operation_grouper_enabled = true;
-    };
-
-}

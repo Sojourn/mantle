@@ -35,8 +35,6 @@ TEST_CASE("RegionController") {
     using Phase = RegionControllerPhase;
     using Action = RegionControllerAction;
 
-    Config config;
-
     WriteBarrierManager write_barrier_manager;
     Ledger ledger(write_barrier_manager);
 
@@ -46,8 +44,7 @@ TEST_CASE("RegionController") {
             std::make_unique<RegionController>(
                 region_id,
                 controllers,
-                write_barrier_manager,
-                config
+                write_barrier_manager
             )
         );
     }

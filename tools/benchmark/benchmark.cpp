@@ -23,10 +23,7 @@ void contend_mantle_ref(size_t thread_count, size_t iterations, size_t object_co
     std::latch running_latch(thread_count + 1);
     std::latch stopped_latch(thread_count + 1);
 
-    Config config;
-    config.operation_grouper_enabled = true;
-
-    Domain domain(config);
+    Domain domain;
     TrivialFinalizer finalizer;
     Region root_region(domain, finalizer);
 

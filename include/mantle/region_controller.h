@@ -10,7 +10,6 @@
 #include <cstdint>
 #include <cstddef>
 #include "mantle/types.h"
-#include "mantle/config.h"
 #include "mantle/util.h"
 #include "mantle/message.h"
 #include "mantle/ledger.h"
@@ -169,8 +168,7 @@ namespace mantle {
         RegionController(
             RegionId region_id,
             RegionControllerGroup& controllers,
-            WriteBarrierManager& write_barrier_manager,
-            const Config& config
+            WriteBarrierManager& write_barrier_manager
         );
 
         RegionController(RegionController&&) = delete;
@@ -206,7 +204,6 @@ namespace mantle {
         RegionId               region_id_;
         RegionControllerGroup& controllers_;
         WriteBarrierManager&   write_barrier_manager_;
-        const Config&          config_;
 
         State                  state_;
         Phase                  phase_;
