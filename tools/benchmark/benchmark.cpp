@@ -19,7 +19,7 @@ inline void synchronize(Region& region, std::latch& latch) {
     }
 }
 
-void contend_mantle_handle(size_t thread_count, size_t iterations, size_t object_count) {
+void contend_mantle_ref(size_t thread_count, size_t iterations, size_t object_count) {
     std::latch running_latch(thread_count + 1);
     std::latch stopped_latch(thread_count + 1);
 
@@ -31,18 +31,18 @@ void contend_mantle_handle(size_t thread_count, size_t iterations, size_t object
     Region root_region(domain, finalizer);
 
     std::vector<Object> objects(object_count);
-    std::vector<Handle<Object>> root_handles;
+    std::vector<Ref<Object>> root_handles;
     root_handles.reserve(object_count);
     for (size_t i = 0; i < object_count; ++i) {
-        root_handles.push_back(make_handle(objects[i]));
+        root_handles.push_back(bind(objects[i]));
     }
 
     std::vector<std::jthread> threads;
     threads.reserve(thread_count);
     for (size_t i = 0; i < thread_count; ++i) {
-        std::vector<Handle<Object>> handles = root_handles;
+        std::vector<Ref<Object>> refs = root_handles;
 
-        threads.push_back(std::jthread([&, handles=std::move(handles)]() mutable {
+        threads.push_back(std::jthread([&, refs=std::move(refs)]() mutable {
             // TODO: Set the thread's affinity.
 
             TrivialFinalizer finalizer;
@@ -52,12 +52,12 @@ void contend_mantle_handle(size_t thread_count, size_t iterations, size_t object
             synchronize(region, running_latch);
 
             for (size_t i = 0; i < iterations; ++i) {
-                for (Handle<Object>& handle: handles) {
-                    Handle<Object> handle_copy = handle;
+                for (Ref<Object>& ref: refs) {
+                    Ref<Object> handle_copy = ref;
                     (void)handle_copy;
                 }
             }
-            handles.clear();
+            refs.clear();
 
             region.stop();
             std::cout << "Worker stopping\n";
@@ -79,7 +79,7 @@ int main() {
     size_t iterations = 1000;
     size_t object_count = 1000;
 
-    contend_mantle_handle(thread_count, iterations, object_count);
+    contend_mantle_ref(thread_count, iterations, object_count);
 
     return 0;
 }
