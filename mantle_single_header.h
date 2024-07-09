@@ -12,7 +12,6 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <emmintrin.h>
 #include <fcntl.h>
 #include <future>
 #include <iostream>
@@ -62,7 +61,10 @@ namespace mantle {
     // FIXME: Some architectures have cache lines that are 128 bytes. We should detect this.
     constexpr size_t CACHE_LINE_SIZE = 64;
 
-    constexpr size_t WRITE_BARRIER_CAPACITY = 128 * 1024;
+    // This trades off memory usage for a reduced number of write protection faults
+    // that need to be handled to extend write barriers.
+    // Ideally this is sized such that write protection faults never happen in steady state.
+    constexpr size_t WRITE_BARRIER_SEGMENT_CAPACITY = 16 * 1024;
 
     struct Config {
         std::optional<std::span<size_t>> domain_cpu_affinity;
@@ -224,6 +226,40 @@ namespace mantle {
 }
 
 
+// include/mantle/selector.h
+
+
+namespace mantle {
+
+    class Selector {
+        Selector(Selector&&);
+        Selector(const Selector&);
+        Selector& operator=(Selector&&);
+        Selector& operator=(const Selector&);
+
+    public:
+        Selector();
+        ~Selector();
+
+        // Returns an array of user-data corresponding to file descriptors that are ready-to-read.
+        std::span<void*> poll(bool non_blocking);
+
+        void add_watch(int file_descriptor, void* user_data);
+        void modify_watch(int file_descriptor, void* user_data);
+        void delete_watch(int file_descriptor);
+
+    private:
+        static constexpr size_t MAX_EVENT_COUNT = 16;
+
+        int                                epoll_fd_;
+        std::array<void*, MAX_EVENT_COUNT> poll_results_;
+    };
+
+    void wait_for_readable(int file_descriptor);
+
+}
+
+
 // include/mantle/operation.h
 
 
@@ -242,7 +278,7 @@ namespace mantle {
         // Lower 3 bit of the tag encode an exponent which is used for greater range.
         // This is also a useful optimization for weighted references which are usually
         // split on powers-of-two.
-        static constexpr uintptr_t EXPONENT_BITS  = 3;
+        static constexpr uintptr_t EXPONENT_BITS  = 2;
         static constexpr uintptr_t EXPONENT_SHIFT = 0;
         static constexpr uintptr_t EXPONENT_MASK  = ((1ull << EXPONENT_BITS) - 1) << EXPONENT_SHIFT;
         static constexpr uintptr_t EXPONENT_MIN   = 0;
@@ -396,13 +432,108 @@ namespace mantle {
 }
 
 
+// include/mantle/page_fault_handler.h
+
+
+
+
+namespace mantle {
+
+    class PageFaultHandler {
+    public:
+        enum class Mode {
+            MISSING,
+            WRITE_PROTECT,
+        };
+
+        PageFaultHandler();
+        ~PageFaultHandler();
+
+        PageFaultHandler(PageFaultHandler&&) = delete;
+        PageFaultHandler(const PageFaultHandler&) = delete;
+        PageFaultHandler& operator=(PageFaultHandler&&) = delete;
+        PageFaultHandler& operator=(const PageFaultHandler&) = delete;
+
+        int file_descriptor() const;
+
+        template<typename Handler>
+        bool poll(Handler&& handler, bool non_blocking);
+
+        void register_memory(std::span<const std::byte> memory, const std::initializer_list<Mode> modes);
+        void unregister_memory(std::span<const std::byte> memory, const std::initializer_list<Mode> modes);
+
+        void write_protect_memory(std::span<const std::byte> memory);
+        void write_unprotect_memory(std::span<const std::byte> memory);
+
+    private:
+        static uint64_t translate(const Mode mode);
+        static uint64_t translate(const std::initializer_list<Mode> modes);
+
+    private:
+        int file_descriptor_;
+    };
+
+    template<typename Handler>
+    inline bool PageFaultHandler::poll(Handler&& handler, bool non_blocking) {
+        struct uffd_msg msg = {};
+
+        if (!non_blocking) {
+            wait_for_readable(file_descriptor_);
+        }
+
+        ssize_t bytes_read;
+        do {
+            bytes_read = read(file_descriptor_, &msg, sizeof(msg));
+        } while ((bytes_read < 0) && (errno == EINTR));
+
+        if (bytes_read < 0) {
+            switch (errno) {
+                case EAGAIN:
+                    return false;
+                default:
+                    throw std::runtime_error("Failed to read userfaultfd");
+            }
+        }
+
+        if (static_cast<size_t>(bytes_read) < sizeof(msg)) {
+            throw std::runtime_error("Failed to read userfaultfd (short read)");
+        }
+
+        switch (msg.event) {
+            case UFFD_EVENT_PAGEFAULT: {
+                std::span memory = {
+                    reinterpret_cast<std::byte*>(msg.arg.pagefault.address & ~(PAGE_SIZE - 1)),
+                    PAGE_SIZE
+                };
+
+                if ((msg.arg.pagefault.flags & UFFD_PAGEFAULT_FLAG_WRITE) == UFFD_PAGEFAULT_FLAG_WRITE) {
+                    handler(memory, Mode::WRITE_PROTECT);
+                }
+                else {
+                    handler(memory, Mode::MISSING);
+                }
+                break;
+            }
+            default: {
+                // Ignore other events for now. Eventually we'll want to handle virtual memory changes
+                // to allow segments to cope with segments being resized.
+                break;
+            }
+        }
+
+        return true;
+    }
+
+}
+
+
 // include/mantle/object.h
 
 
 namespace mantle {
 
-    // This alignment gives us 4 tag bits to use in the encoding of an operation.
-    class alignas(16) Object {
+    // This alignment gives us 3 tag bits to use in the encoding of an operation.
+    class alignas(8) Object {
     public:
         explicit Object(ObjectGroup group = 0);
         ~Object();
@@ -424,9 +555,6 @@ namespace mantle {
     private:
         template<typename T>
         friend class Ref;
-        template<typename T>
-        friend class Handle;
-        friend class Region;
         friend class RegionController;
 
         // Associate this `Object` to the local `Region`. Reference counting
@@ -434,12 +562,6 @@ namespace mantle {
         // can only be bound once, when a handle to it is first created.
         //
         void bind(RegionId region_id);
-
-        // Submit an operation to the `Region` who will forward it to the `Domain`.
-        void start_increment_operation(uint8_t exponent);
-        void start_increment_operation(Operation operation);
-        void start_decrement_operation(uint8_t exponent);
-        void start_decrement_operation(Operation operation);
 
         // Update the reference count of this `Object` by the given magnitude.
         // These functions return `true` if the reference count remains positive.
@@ -455,6 +577,217 @@ namespace mantle {
     // Ensure that we can pack a tag and pointer into an Operation.
     static_assert(alignof(Object) >= (1ull << Operation::TAG_BITS));
     static_assert(sizeof(Object*) == sizeof(Operation));
+
+}
+
+
+// include/mantle/ledger.h
+
+
+
+#define WRITE_BARRIER_PHASES(X) \
+    X(STORE_DECREMENTS)         \
+    X(DELAY)                    \
+    X(STORE_INCREMENTS)         \
+    X(APPLY)                    \
+
+namespace mantle {
+
+    class Ledger;
+    class WriteBarrier;
+
+    enum class WriteBarrierPhase {
+#define X(WRITE_BARRIER_PHASE) WRITE_BARRIER_PHASE,
+        WRITE_BARRIER_PHASES(X)
+#undef X
+    };
+
+    constexpr size_t WRITE_BARRIER_PHASE_COUNT = 0
+#define X(WRITE_BARRIER_PHASE) + 1
+        WRITE_BARRIER_PHASES(X)
+#undef X
+    ;
+
+    // This is a simple RAII wrapper around a private anonymous memory mapping.
+    // It is used as backing storage for write barrier segments to ensure page alignment.
+    class PrivateMemoryMapping {
+    public:
+        explicit PrivateMemoryMapping(size_t size, bool populate = true);
+        ~PrivateMemoryMapping();
+
+        PrivateMemoryMapping(PrivateMemoryMapping&&) = delete;
+        PrivateMemoryMapping(const PrivateMemoryMapping&) = delete;
+        PrivateMemoryMapping& operator=(PrivateMemoryMapping&&) = delete;
+        PrivateMemoryMapping& operator=(const PrivateMemoryMapping&) = delete;
+
+        [[nodiscard]]
+        std::span<std::byte> memory();
+
+        [[nodiscard]]
+        std::span<const std::byte> memory() const;
+
+    private:
+        std::span<std::byte> memory_;
+    };
+
+    // An object pointer vector. It is divided into increment and decrement sections
+    // which are written in their respective phases.
+    struct WriteBarrierSegment {
+        WriteBarrierSegment* prev;
+        WriteBarrier*        barrier;
+        PrivateMemoryMapping mapping;
+        bool                 primed; // Write protection status.
+        size_t               increment_count;
+        size_t               decrement_count;
+
+        WriteBarrierSegment();
+
+        WriteBarrierSegment(WriteBarrierSegment&&) = delete;
+        WriteBarrierSegment(const WriteBarrierSegment&) = delete;
+        WriteBarrierSegment& operator=(WriteBarrierSegment&&) = delete;
+        WriteBarrierSegment& operator=(const WriteBarrierSegment&) = delete;
+
+        Object** cursor();
+        std::span<Object*> records();
+        std::span<Object*> increment_records();
+        std::span<Object*> decrement_records();
+        std::span<std::byte> guard_page();
+    };
+
+    // A segmented object pointer vector. Bounds checking is performed indirectly
+    // using the MMU (memory management unit) via guard pages at the end of segments.
+    class WriteBarrier {
+    public:
+        using Phase = WriteBarrierPhase;
+
+        explicit WriteBarrier(Ledger& ledger, size_t phase_shift);
+
+        WriteBarrier(WriteBarrier&&) = delete;
+        WriteBarrier(const WriteBarrier&) = delete;
+        WriteBarrier& operator=(WriteBarrier&&) = delete;
+        WriteBarrier& operator=(const WriteBarrier&) = delete;
+
+        Ledger& ledger();
+
+        [[nodiscard]]
+        Phase phase() const;
+
+        [[nodiscard]]
+        bool is_empty() const;
+
+        // TODO: Give these `_segment` suffixes.
+        WriteBarrierSegment* back();
+        void push_back(WriteBarrierSegment& segment);
+        WriteBarrierSegment* pop_back();
+
+        void commit();
+
+        // NOTE: This is O(#segments).
+        [[nodiscard]]
+        size_t increment_count() const;
+
+        // NOTE: This is O(#segments).
+        [[nodiscard]]
+        size_t decrement_count() const;
+
+    private:
+        Ledger&              ledger_;
+        size_t               phase_shift_;
+        WriteBarrierSegment* stack_; // Pointer to the top stack segment.
+    };
+
+    class WriteBarrierManager {
+    public:
+        [[nodiscard]]
+        int file_descriptor();
+        void poll(bool non_blocking);
+
+        void attach(WriteBarrier& barrier);
+        void detach(WriteBarrier& barrier);
+
+        WriteBarrierSegment& allocate_segment();
+        void deallocate_segment(WriteBarrierSegment& segment);
+
+    private:
+        void prime_guard_page(WriteBarrierSegment& segment);
+
+    private:
+        PageFaultHandler                                  page_fault_handler_;
+
+        std::mutex                                        segment_pool_mutex_;
+        std::vector<WriteBarrierSegment*>                 segment_pool_;
+        std::vector<std::unique_ptr<WriteBarrierSegment>> segment_pool_storage_;
+    };
+
+    class Ledger {
+    public:
+        // Conceptually a `std::atomic<std::vector<Object*>::iterator>`.
+        using Cursor = std::atomic<Object**>;
+
+        static Cursor& local_increment_cursor() {
+            thread_local Cursor cursor = nullptr;
+            return cursor;
+        }
+
+        static Cursor& local_decrement_cursor() {
+            thread_local Cursor cursor = nullptr;
+            return cursor;
+        }
+
+        explicit Ledger(WriteBarrierManager& write_barrier_manager);
+        ~Ledger();
+
+        Ledger(Ledger&&) = delete;
+        Ledger(const Ledger&) = delete;
+        Ledger& operator=(Ledger&&) = delete;
+        Ledger& operator=(const Ledger&) = delete;
+
+        [[nodiscard]]
+        Sequence sequence() const;
+
+        [[nodiscard]]
+        bool is_empty() const;
+
+        Cursor& increment_cursor();
+        Cursor& decrement_cursor();
+
+        // Find the barrier in the corresponding phase.
+        WriteBarrier& barrier(WriteBarrierPhase phase);
+        WriteBarrier& increment_barrier();
+        WriteBarrier& decrement_barrier();
+
+        // Advances barrier phases and returns a barrier that can be applied.
+        WriteBarrier& commit();
+
+    private:
+        AtomicSequence       sequence_;
+        Cursor&              increment_cursor_;
+        Cursor&              decrement_cursor_;
+        WriteBarrier         write_barriers_[WRITE_BARRIER_PHASE_COUNT];
+        WriteBarrierManager& write_barrier_manager_;
+    };
+
+    MANTLE_HOT
+    void increment_ref_cnt(Object& object) {
+        std::atomic<Object**>& cursor = Ledger::local_increment_cursor();
+        Object** record = cursor.load(std::memory_order_acquire); // Doesn't need to be a fetch-add.
+        assert(record);
+
+        cursor.store(record + 1, std::memory_order_release);
+        *record = &object;
+    }
+
+    MANTLE_HOT
+    void decrement_ref_cnt(Object& object) {
+        std::atomic<Object**>& cursor = Ledger::local_decrement_cursor();
+        Object** record = cursor.load(std::memory_order_acquire); // Doesn't need to be a fetch-add.
+        assert(record);
+
+        cursor.store(record + 1, std::memory_order_release);
+        *record = &object;
+    }
+
+    using ObjectLedger = Ledger;
 
 }
 
@@ -597,208 +930,6 @@ namespace mantle {
 }
 
 
-// include/mantle/operation_writer.h
-
-
-namespace mantle {
-
-    // This class streams batches of operations to memory, bypassing the CPU cache hierarchy.
-    template<typename Storage_>
-    class OperationWriter {
-    public:
-        using Storage = Storage_;
-
-        OperationWriter(Storage& storage, Sequence head = 0, Sequence tail = 0)
-            : storage_(storage)
-            , head_(0)
-            , tail_(0)
-        {
-            memset(&batch_, 0, sizeof(batch_));
-
-            reset(head, tail);
-        }
-
-        OperationWriter(OperationWriter&&) = delete;
-        OperationWriter(const OperationWriter&) = delete;
-        OperationWriter& operator=(OperationWriter&&) = delete;
-        OperationWriter& operator=(const OperationWriter&) = delete;
-
-        Sequence tell() const {
-            return head_;
-        }
-
-        // TODO: Look at the code-gen for this. I think it might suck.
-        //       We want a fairly short instruction sequence so it can inline.
-        MANTLE_HOT bool write(Operation operation) {
-            if (head_ == tail_) {
-                return false;
-            }
-
-            size_t operation_index = head_ & OperationBatch::MASK;
-            batch_.operations[operation_index] = operation;
-
-            // Stream the batch to memory if we just completed it.
-            if (operation_index == OperationBatch::MASK) {
-                size_t batch_index = head_ >> OperationBatch::SHIFT;
-
-                OperationBatch* target_batch = &storage_[batch_index];
-                __m128i* target_pointer = (__m128i*)target_batch;
-
-                const OperationBatch* source_batch = &batch_;
-                const __m128i* source_pointer = (const __m128i*)source_batch;
-
-                _mm_stream_si128(target_pointer+0, _mm_load_si128(source_pointer+0));
-                _mm_stream_si128(target_pointer+1, _mm_load_si128(source_pointer+1));
-                _mm_stream_si128(target_pointer+2, _mm_load_si128(source_pointer+2));
-                _mm_stream_si128(target_pointer+3, _mm_load_si128(source_pointer+3));
-            }
-
-            head_ += 1;
-
-            return true;
-        }
-
-        // Pad the current batch with null operations and write it out if it is partially full.
-        //
-        // !!! This must be called to make prior writes visible in other threads. !!!
-        //
-        void flush() {
-            while (head_ & OperationBatch::MASK) {
-                write(make_null_operation());
-            }
-
-            _mm_sfence();
-        }
-
-        void reset(Sequence head = 0, Sequence tail = 0) {
-            assert(!(head & OperationBatch::MASK));
-            assert(!(tail & OperationBatch::MASK));
-
-            head_ = head;
-            tail_ = tail;
-        }
-
-    private:
-        Storage&       storage_;
-        Sequence       head_;
-        Sequence       tail_;
-        OperationBatch batch_;
-    };
-
-    using OperationVector = std::vector<OperationBatch>;
-
-    class OperationVectorWriter : private OperationWriter<OperationVector> {
-    public:
-        using Base = OperationWriter<OperationVector>;
-
-        OperationVectorWriter(size_t capacity = 0)
-            : Base(storage_)
-        {
-            storage_.reserve(capacity);
-        }
-
-        OperationRange data() {
-            return {
-                .head = storage_.data(),
-                .tail = storage_.data() + storage_.size(),
-            };
-        }
-
-        std::span<OperationBatch> span() {
-            return {
-                storage_.data(),
-                storage_.size(),
-            };
-        }
-
-        void write(Operation operation) {
-            // Fast-path: the current batch has space for this operation.
-            if (LIKELY(Base::write(operation))) {
-                return;
-            }
-
-            // Append a new, empty batch.
-            {
-                Sequence new_head = Base::tell();
-                Sequence new_tail = new_head + OperationBatch::SIZE;
-
-                OperationBatch batch;
-                memset(&batch, 0, sizeof(batch));
-                storage_.push_back(batch);
-
-                Base::reset(new_head, new_tail);
-            }
-
-            // This write will succeed with the additional capacity.
-            bool written = Base::write(operation);
-            (void)written;
-            assert(written); // TODO: Make a `MANTLE_ASSERT` macro that does a void cast in release builds.
-        }
-
-        void flush() {
-            Base::flush();
-        }
-
-        void clear() {
-            storage_.clear();
-            Base::reset(0, 0);
-        }
-
-        std::vector<OperationBatch> release() {
-            return std::move(storage_);
-        }
-
-    private:
-        std::vector<OperationBatch> storage_;
-    };
-
-}
-
-
-// include/mantle/ring.h
-
-
-namespace mantle {
-
-    template<typename T>
-    class Ring {
-    public:
-        explicit Ring(size_t minimum_size) {
-            size_t size = 1;
-            while (size < minimum_size) {
-                size = size * 2;
-            }
-
-            data_.resize(size);
-            mask_ = size - 1;
-        }
-
-        size_t size() const {
-            return data_.size();
-        }
-
-        T& operator[](Sequence sequence) {
-            return data_[sequence & mask_];
-        }
-
-        const T& operator[](Sequence sequence) const {
-            return data_[sequence & mask_];
-        }
-
-        void fill(const T& value) {
-            for (size_t i = 0; i < data_.size(); ++i) {
-                data_[i] = value;
-            }
-        }
-
-    private:
-        std::vector<T> data_;
-        size_t         mask_;
-    };
-
-}
-
-
 // include/mantle/doorbell.h
 
 
@@ -868,8 +999,7 @@ namespace mantle {
         struct Submit {
             MessageType   type;
             bool          stop; // The region is ready to stop.
-            SequenceRange increments;
-            SequenceRange decrements;
+            WriteBarrier* write_barrier;
         } submit;
 
         // domain -> region
@@ -925,6 +1055,50 @@ namespace mantle {
 
         abort();
     }
+
+}
+
+
+// include/mantle/ring.h
+
+
+namespace mantle {
+
+    template<typename T>
+    class Ring {
+    public:
+        explicit Ring(size_t minimum_size) {
+            size_t size = 1;
+            while (size < minimum_size) {
+                size = size * 2;
+            }
+
+            data_.resize(size);
+            mask_ = size - 1;
+        }
+
+        size_t size() const {
+            return data_.size();
+        }
+
+        T& operator[](Sequence sequence) {
+            return data_[sequence & mask_];
+        }
+
+        const T& operator[](Sequence sequence) const {
+            return data_[sequence & mask_];
+        }
+
+        void fill(const T& value) {
+            for (size_t i = 0; i < data_.size(); ++i) {
+                data_[i] = value;
+            }
+        }
+
+    private:
+        std::vector<T> data_;
+        size_t         mask_;
+    };
 
 }
 
@@ -1018,127 +1192,6 @@ namespace mantle {
         size_t                                   cache_size_;
         Metrics                                  metrics_;
         Cache                                    cache_;
-    };
-
-}
-
-
-// include/mantle/operation_ledger.h
-
-
-namespace mantle {
-
-    class SequenceRangeHistory {
-    public:
-        explicit SequenceRangeHistory(size_t capacity)
-            : next_slot_(0)
-            , data_(capacity)
-        {
-            data_.fill(0);
-        }
-
-        [[nodiscard]]
-        size_t capacity() const {
-            return data_.size();
-        }
-
-        [[nodiscard]]
-        SequenceRange select(int age = 0) const {
-            const Sequence prev_slot = next_slot_ - 1;
-
-            return {
-                .head = data_[prev_slot - age - 1],
-                .tail = data_[prev_slot - age - 0],
-            };
-        }
-
-        // NOTE: The `head` of the new range is implicitly the `tail` of the
-        //       previously inserted `SequenceRange`.
-        void insert(const Sequence tail) {
-            data_[next_slot_++] = tail;
-        }
-
-    private:
-        Sequence       next_slot_;
-        Ring<Sequence> data_;
-    };
-
-    class OperationLedger {
-    public:
-        explicit OperationLedger(size_t ledger_capacity)
-            : storage_(ledger_capacity)
-            , transaction_log_(TRANSACTION_LOG_HISTORY)
-            , transaction_head_(0)
-            , transaction_tail_(storage_.size())
-            , writer_(storage_, transaction_head_, transaction_tail_)
-        {
-        }
-
-        [[nodiscard]]
-        const SequenceRangeHistory& transaction_log() const {
-            return transaction_log_;
-        }
-
-        [[nodiscard]]
-        bool is_empty() const {
-            return (transaction_tail_ - writer_.tell()) == storage_.size();
-        }
-
-        void begin_transaction() {
-            transaction_head_ = writer_.tell();
-            transaction_tail_ = transaction_log_.select(-1).tail + storage_.size();
-
-            writer_.reset(transaction_head_, transaction_tail_);
-        }
-
-        SequenceRange commit_transaction() {
-            writer_.flush();
-            transaction_log_.insert(writer_.tell());
-            return transaction_log_.select(0);
-        }
-
-        // Returns a reference to the batch containing this operation sequence.
-        //
-        // NOTE: Reading an operation batch that hasn't been published in a transaction is undefined behavior.
-        //
-        [[nodiscard]]
-        const OperationBatch& read_batch(const Sequence sequence) const {
-            return storage_[sequence >> OperationBatch::SHIFT];
-        }
-
-        // Returns a reference to the operation corresponding to this sequence.
-        //
-        // NOTE: Reading an operation that hasn't been published in a transaction is undefined behavior.
-        //
-        [[nodiscard]]
-        const Operation& read(const Sequence sequence) const {
-            return read_batch(sequence).operations[sequence & OperationBatch::MASK];
-        }
-
-        // Adds an operation to the current, uncommitted transaction.
-        // This can fail and return false if the ledger is full.
-        MANTLE_HOT bool write(const Operation operation) {
-            return writer_.write(operation);
-        }
-
-        // Return the number of entries that can still be written to the current transaction.
-        [[nodiscard]]
-        size_t writable_transaction_entries() const {
-            const Sequence ceiling = transaction_log_.select(-1).tail + storage_.size();
-            return ceiling - writer_.tell();
-        }
-
-    private:
-        static constexpr size_t TRANSACTION_LOG_HISTORY = 4;
-
-        using Storage = Ring<OperationBatch>;
-        using Writer = OperationWriter<Storage>;
-
-        Storage               storage_;
-        SequenceRangeHistory  transaction_log_;
-        Sequence              transaction_head_;
-        Sequence              transaction_tail_;
-        Writer                writer_;
     };
 
 }
@@ -1448,98 +1501,6 @@ namespace mantle {
 }
 
 
-// include/mantle/page_fault_handler.h
-
-
-
-namespace mantle {
-
-    class PageFaultHandler {
-    public:
-        enum class Mode {
-            MISSING,
-            WRITE_PROTECT,
-        };
-
-        PageFaultHandler();
-        ~PageFaultHandler();
-
-        PageFaultHandler(PageFaultHandler&&) = delete;
-        PageFaultHandler(const PageFaultHandler&) = delete;
-        PageFaultHandler& operator=(PageFaultHandler&&) = delete;
-        PageFaultHandler& operator=(const PageFaultHandler&) = delete;
-
-        int file_descriptor() const;
-
-        template<typename Handler>
-        bool poll(Handler&& handler);
-
-        void register_memory(std::span<const std::byte> memory, const std::initializer_list<Mode> modes);
-        void unregister_memory(std::span<const std::byte> memory, const std::initializer_list<Mode> modes);
-
-        void write_protect_memory(std::span<const std::byte> memory);
-        void write_unprotect_memory(std::span<const std::byte> memory);
-
-    private:
-        static uint64_t translate(const Mode mode);
-        static uint64_t translate(const std::initializer_list<Mode> modes);
-
-    private:
-        int  uffd_;
-        bool has_feature_thread_id_;
-        bool has_feature_exact_address_;
-    };
-
-    template<typename Handler>
-    inline bool PageFaultHandler::poll(Handler&& handler) {
-        struct uffd_msg msg = {};
-
-        ssize_t bytes_read;
-        do {
-            bytes_read = read(uffd_, &msg, sizeof(msg));
-        } while ((bytes_read < 0) && (errno == EINTR));
-
-        if (bytes_read < 0) {
-            switch (errno) {
-                case EAGAIN:
-                    return false;
-                default:
-                    throw std::runtime_error("Failed to read userfaultfd");
-            }
-        }
-
-        if (static_cast<size_t>(bytes_read) < sizeof(msg)) {
-            throw std::runtime_error("Failed to read userfaultfd (short read)");
-        }
-
-        switch (msg.event) {
-            case UFFD_EVENT_PAGEFAULT: {
-                std::span memory = {
-                    reinterpret_cast<std::byte*>(msg.arg.pagefault.address & ~(PAGE_SIZE - 1)),
-                    PAGE_SIZE
-                };
-
-                if ((msg.arg.pagefault.flags & UFFD_PAGEFAULT_FLAG_WRITE) == UFFD_PAGEFAULT_FLAG_WRITE) {
-                    handler(memory, Mode::WRITE_PROTECT);
-                }
-                else {
-                    handler(memory, Mode::MISSING);
-                }
-                break;
-            }
-            default: {
-                // Ignore other events for now. Eventually we'll want to handle virtual memory changes
-                // to allow segments to cope with segments being resized.
-                break;
-            }
-        }
-
-        return true;
-    }
-
-}
-
-
 // include/mantle/region_controller.h
 
 
@@ -1693,7 +1654,7 @@ namespace mantle {
         RegionController(
             RegionId region_id,
             RegionControllerGroup& controllers,
-            const OperationLedger& ledger,
+            WriteBarrierManager& write_barrier_manager,
             const Config& config
         );
 
@@ -1724,21 +1685,19 @@ namespace mantle {
         void transition(Phase next_phase);
         void transition(Cycle next_cycle);
 
-        size_t route_operations(OperationType type, SequenceRange range);
+        size_t route_operations(OperationType type, std::span<Object*> objects);
 
     private:
         RegionId               region_id_;
         RegionControllerGroup& controllers_;
-        const OperationLedger& ledger_;
+        WriteBarrierManager&   write_barrier_manager_;
         const Config&          config_;
 
         State                  state_;
         Phase                  phase_;
         Cycle                  cycle_;
 
-    SequenceRange          submitted_increments_;
-        SequenceRange          submitted_decrements_;
-
+        WriteBarrier*          write_barrier_;
         OperationGrouper       operation_grouper_;
         ObjectGrouper          object_grouper_;
 
@@ -1818,19 +1777,7 @@ namespace mantle {
         void step(bool non_blocking);
 
     private:
-        template<typename T>
-        friend class Handle;
-        friend class Object;
-
-        MANTLE_HOT void start_increment_operation(Object& object, Operation operation);
-        MANTLE_HOT void start_decrement_operation(Object& object, Operation operation);
-
-        MANTLE_COLD void flush_operation(Operation operation);
-
-    private:
         friend class Domain;
-
-        const OperationLedger& ledger() const;
 
         Endpoint& domain_endpoint();
         Endpoint& region_endpoint();
@@ -1858,7 +1805,7 @@ namespace mantle {
         size_t                      depth_;
 
         ObjectFinalizer&            finalizer_;
-        OperationLedger             ledger_;
+        Ledger                      ledger_;
 
         std::optional<ObjectGroups> garbage_;
         std::vector<Object*>        garbage_pile_;
@@ -1872,262 +1819,8 @@ namespace mantle {
         }
     };
 
-    inline void Region::start_increment_operation(Object&, Operation operation) {
-        assert(state_ != State::STOPPED);
-        assert(operation.type() == OperationType::INCREMENT);
-
-        // Fast-path: The operation can be added to the current transaction.
-        if (LIKELY(ledger_.write(operation))) {
-            return;
-        }
-
-        flush_operation(operation);
-    }
-
-    inline void Region::start_decrement_operation(Object&, Operation operation) {
-        assert(state_ != State::STOPPED);
-        assert(operation.type() == OperationType::DECREMENT);
-
-        // Fast-path: The operation can be added to the current transaction.
-        if (LIKELY(ledger_.write(operation))) {
-            return;
-        }
-
-        flush_operation(operation);
-    }
-
     std::string_view to_string(RegionState state);
     std::string_view to_string(RegionPhase phase);
-
-}
-
-
-// include/mantle/selector.h
-
-
-namespace mantle {
-
-    class Selector {
-        Selector(Selector&&);
-        Selector(const Selector&);
-        Selector& operator=(Selector&&);
-        Selector& operator=(const Selector&);
-
-    public:
-        Selector();
-        ~Selector();        
-
-        // Returns an array of user-data corresponding to file descriptors that are ready-to-read.
-        std::span<void*> poll(bool non_blocking);
-
-        void add_watch(int file_descriptor, void* user_data);
-        void modify_watch(int file_descriptor, void* user_data);
-        void delete_watch(int file_descriptor);
-
-    private:
-        static constexpr size_t MAX_EVENT_COUNT = 16;
-
-        int                                epoll_fd_;
-        std::array<void*, MAX_EVENT_COUNT> poll_results_;
-    };
-
-    void wait_for_readable(int file_descriptor);
-
-}
-
-
-// include/mantle/ledger.h
-
-
-
-#define WRITE_BARRIER_PHASES(X) \
-    X(STORE_DECREMENTS)         \
-    X(DELAY)                    \
-    X(STORE_INCREMENTS)         \
-    X(APPLY)                    \
-
-namespace mantle {
-
-    class Ledger;
-    class WriteBarrier;
-
-    enum class WriteBarrierPhase {
-#define X(WRITE_BARRIER_PHASE) WRITE_BARRIER_PHASE,
-        WRITE_BARRIER_PHASES(X)
-#undef X
-    };
-
-    constexpr size_t WRITE_BARRIER_PHASE_COUNT = 0
-#define X(WRITE_BARRIER_PHASE) + 1
-        WRITE_BARRIER_PHASES(X)
-#undef X
-    ;
-
-    // This is a simple RAII wrapper around a private anonymous memory mapping.
-    class PrivateMemoryMapping {
-    public:
-        explicit PrivateMemoryMapping(size_t size, bool populate = true);
-        ~PrivateMemoryMapping();
-
-        PrivateMemoryMapping(PrivateMemoryMapping&&) = delete;
-        PrivateMemoryMapping(const PrivateMemoryMapping&) = delete;
-        PrivateMemoryMapping& operator=(PrivateMemoryMapping&&) = delete;
-        PrivateMemoryMapping& operator=(const PrivateMemoryMapping&) = delete;
-
-        [[nodiscard]]
-        std::span<std::byte> memory();
-
-        [[nodiscard]]
-        std::span<const std::byte> memory() const;
-
-    private:
-        std::span<std::byte> memory_;
-    };
-
-    struct WriteBarrierSegment {
-        WriteBarrierSegment* prev;
-        WriteBarrier*        barrier;
-        bool                 primed;
-        size_t               increment_count;
-        size_t               decrement_count;
-        PrivateMemoryMapping mapping;
-
-        WriteBarrierSegment();
-
-        WriteBarrierSegment(WriteBarrierSegment&&) = delete;
-        WriteBarrierSegment(const WriteBarrierSegment&) = delete;
-        WriteBarrierSegment& operator=(WriteBarrierSegment&&) = delete;
-        WriteBarrierSegment& operator=(const WriteBarrierSegment&) = delete;
-
-        Object** cursor();
-        std::span<Object*> objects();
-        std::span<std::byte> guard_page();
-    };
-
-    // Rename to WriteBarrierStack?
-    class WriteBarrier {
-    public:
-        using Phase = WriteBarrierPhase;
-
-        explicit WriteBarrier(Ledger& ledger, size_t phase_shift);
-        ~WriteBarrier();
-
-        WriteBarrier(WriteBarrier&&) = delete;
-        WriteBarrier(const WriteBarrier&) = delete;
-        WriteBarrier& operator=(WriteBarrier&&) = delete;
-        WriteBarrier& operator=(const WriteBarrier&) = delete;
-
-        Ledger& ledger();
-
-        [[nodiscard]]
-        Phase phase() const;
-
-        [[nodiscard]]
-        bool is_empty() const;
-        WriteBarrierSegment* back();
-        void push_back(WriteBarrierSegment& segment);
-        WriteBarrierSegment* pop_back();
-
-        void commit(bool pending_write);
-
-        // NOTE: This is O(N).
-        [[nodiscard]]
-        size_t increment_count() const;
-
-        // NOTE: This is O(N).
-        [[nodiscard]]
-        size_t decrement_count() const;
-
-    private:
-        Ledger&              ledger_;
-        size_t               phase_shift_;
-        WriteBarrierSegment* stack_;
-    };
-
-    class WriteBarrierManager {
-    public:
-        WriteBarrierManager();
-
-        [[nodiscard]]
-        int file_descriptor();
-        void poll();
-
-        void attach(WriteBarrier& barrier);
-        void detach(WriteBarrier& barrier);
-
-    private:
-        void prime_guard_page(WriteBarrierSegment& segment);
-
-        WriteBarrierSegment& allocate_segment();
-        void deallocate_segment(WriteBarrierSegment& segment);
-
-    private:
-        PageFaultHandler                                  page_fault_handler_;
-
-        std::mutex                                        segment_pool_mutex_;
-        std::vector<WriteBarrierSegment*>                 segment_pool_;
-        std::vector<std::unique_ptr<WriteBarrierSegment>> segment_pool_storage_;
-    };
-
-    class Ledger {
-    public:
-        // Conceptually a `std::atomic<std::vector<Object*>::iterator>`.
-        using Cursor = std::atomic<Object**>;
-
-        static Cursor& local_increment_cursor() {
-            thread_local Cursor cursor = nullptr;
-            return cursor;
-        }
-
-        static Cursor& local_decrement_cursor() {
-            thread_local Cursor cursor = nullptr;
-            return cursor;
-        }
-
-        explicit Ledger(WriteBarrierManager& write_barrier_manager);
-        ~Ledger();
-
-        Ledger(Ledger&&) = delete;
-        Ledger(const Ledger&) = delete;
-        Ledger& operator=(Ledger&&) = delete;
-        Ledger& operator=(const Ledger&) = delete;
-
-        [[nodiscard]]
-        Sequence sequence() const;
-
-        Cursor& increment_cursor();
-        Cursor& decrement_cursor();
-
-        // Find the barrier in the corresponding phase.
-        WriteBarrier& barrier(WriteBarrierPhase phase);
-        WriteBarrier& increment_barrier();
-        WriteBarrier& decrement_barrier();
-
-        void step();
-
-    private:
-        AtomicSequence       sequence_;
-        Cursor&              increment_cursor_;
-        Cursor&              decrement_cursor_;
-        WriteBarrier         write_barriers_[WRITE_BARRIER_PHASE_COUNT];
-        WriteBarrierManager& write_barrier_manager_;
-    };
-
-    MANTLE_HOT
-    void increment_ref_cnt(Object& object) {
-        std::atomic<Object**>& cursor = Ledger::local_increment_cursor();
-        Object** record = cursor.load(std::memory_order_acquire); // Doesn't need to be a fetch-add.
-        cursor.store(record + 1, std::memory_order_release);
-        *record = &object;
-    }
-
-    MANTLE_HOT
-    void decrement_ref_cnt(Object& object) {
-        std::atomic<Object**>& cursor = Ledger::local_decrement_cursor();
-        Object** record = cursor.load(std::memory_order_acquire); // Doesn't need to be a fetch-add.
-        cursor.store(record + 1, std::memory_order_release);
-        *record = &object;
-    }
 
 }
 
@@ -2154,6 +1847,9 @@ namespace mantle {
         [[nodiscard]]
         const Config& config() const;
 
+        [[nodiscard]]
+        WriteBarrierManager& write_barrier_manager();
+
     private:
         void run();
 
@@ -2172,6 +1868,8 @@ namespace mantle {
         std::mutex             regions_mutex_;
         std::vector<Region*>   regions_;
         RegionControllerGroup  controllers_;
+
+        WriteBarrierManager    write_barrier_manager_;
 
         bool                   running_;
         Doorbell               doorbell_;
@@ -2244,6 +1942,14 @@ namespace mantle {
             decrement_ref_cnt(*object_);
         }
 
+        T* get() noexcept {
+            return object_;
+        }
+
+        const T* get() const noexcept {
+            return object_;
+        }
+
         T& operator*() noexcept {
             return *object_;
         }
@@ -2278,219 +1984,6 @@ namespace std {
     // class optional<Ref<T>> {
     // public:
     // };
-
-}
-
-
-// include/mantle/handle.h
-
-
-namespace mantle {
-
-    // This class holds a strong reference to an Object derived class instance.
-    // It implements a smart-pointer like interface and has semantics similar to std::shared_ptr.
-    //
-    // NOTE: We've got an extra `OperationType` bit we can use for a flag if needed.
-    // NOTE: The exponent is never saturated at rest. We can use the high bit for a flag if needed.
-    // TODO: Think about renaming this to `Ref<T>` for brevity.
-    //
-    template<typename T>
-    class Handle {
-        static_assert(std::is_base_of_v<Object, T>, "Object is a required base class");
-
-        friend Handle<T> make_handle<T>(T& object) noexcept;
-
-        // Bind an `Object` subclass to the local `Region` and return a managed `Handle` to it.
-        static Handle bind(T& object) noexcept {
-            Region* region = Region::thread_local_instance();
-            assert(region);
-
-            static_cast<Object&>(object).bind(region->id());
-
-            return Handle(make_decrement_operation(&object, Operation::EXPONENT_MIN));
-        }
-
-        explicit Handle(Operation operation) noexcept
-            : operation_(operation)
-        {
-        }
-
-    public:
-        Handle() noexcept
-            : operation_(make_null_operation())
-        {
-        }
-
-        Handle(std::nullptr_t) noexcept
-            : Handle()
-        {
-        }
-
-        Handle(Handle&& other) noexcept
-            : operation_(make_null_operation())
-        {
-            std::swap(operation_, other.operation_);
-        }
-
-        template<typename U>
-        Handle(Handle<U>&& other) noexcept
-            : operation_(make_null_operation())
-        {
-            std::swap(operation_, other.operation_);
-        }
-
-        Handle(const Handle& other) noexcept
-            : Handle(other.copy_reference())
-        {
-        }
-
-        template<typename U>
-        Handle(const Handle<U>& other) noexcept
-            : operation_(other.copy_reference())
-        {
-            static_assert(std::is_base_of_v<T, U>);
-        }
-
-        Handle& operator=(Handle&& that) noexcept {
-            if (operation_.object() != that.operation_.object()) {
-                reset();
-                std::swap(operation_, that.operation_);
-            }
-
-            return *this;
-        }
-
-        template<typename U>
-        Handle& operator=(Handle<U>&& that) noexcept {
-            static_assert(std::is_base_of_v<T, U>);
-
-            if (operation_.object() != that.operation_.object()) {
-                reset();
-                std::swap(operation_, that.operation_);
-            }
-
-            return *this;
-        }
-
-        Handle& operator=(const Handle& that) noexcept {
-            if (operation_.object() != that.operation_.object()) {
-                reset();
-                operation_ = that.copy_reference();
-            }
-
-            return *this;
-        }
-
-        template<typename U>
-        Handle& operator=(const Handle<U>& that) noexcept {
-            static_assert(std::is_base_of_v<T, U>);
-
-            if (operation_.object() != that.operation_.object()) {
-                reset();
-                operation_ = that.copy_reference();
-            }
-
-            return *this;
-        }
-
-        ~Handle() noexcept {
-            reset();
-        }
-
-        T* get() noexcept {
-            return static_cast<T*>(operation_.mutable_object());
-        }
-
-        const T* get() const noexcept {
-            return static_cast<const T*>(operation_.object());
-        }
-
-        T* operator->() noexcept {
-            assert(*this);
-
-            return get();
-        }
-
-        const T* operator->() const noexcept {
-            assert(*this);
-
-            return get();
-        }
-
-        T& operator*() noexcept {
-            assert(*this);
-
-            return *get();
-        }
-
-        const T& operator*() const noexcept {
-            assert(*this);
-
-            return *get();
-        }
-
-        explicit operator bool() const noexcept {
-            return static_cast<bool>(operation_);
-        }
-
-        void reset() noexcept {
-            if (operation_) {
-                Object* object = operation_.mutable_object();
-                assert(object);
-                object->start_decrement_operation(operation_);
-
-                operation_ = make_null_operation();
-            }
-
-            assert(!operation_);
-        }
-
-    public:
-        uint8_t weight() const {
-            return operation_.exponent();
-        }
-
-    private:
-        [[nodiscard]] MANTLE_HOT Operation copy_reference() const {
-            Object* object = operation_.mutable_object();
-            if (!object) {
-                return make_null_operation();
-            }
-
-            if constexpr (ENABLE_WEIGHTED_REFERENCE_COUNTING) {
-                // Check if we need to gain additional weight.
-                if (weight() == 0) {
-                    // NOTE: Submit the new operation before the old operation.
-                    object->start_increment_operation(make_increment_operation(object, Operation::EXPONENT_MAX));
-                    object->start_decrement_operation(operation_);
-                    operation_ = make_decrement_operation(object, Operation::EXPONENT_MAX);
-                }
-
-                // Split our weight in half by reducing the exponent by one.
-                operation_ = make_decrement_operation(object, weight() - 1);
-                return operation_;
-            }
-            else {
-                // Create a paired increment and decrement.
-                Operation increment = make_increment_operation(object);
-                Operation decrement = make_decrement_operation(object);
-
-                // The increment can be started immediately.
-                object->start_increment_operation(increment);
-
-                // The decrement will be started once the new reference is dropped.
-                return decrement;
-            }
-        }
-
-    private:
-        mutable Operation operation_;
-    };
-
-    template<typename T>
-    inline Handle<T> make_handle(T& object) noexcept {
-        return Handle<T>::bind(object);
-    }
 
 }
 
@@ -2606,7 +2099,6 @@ namespace mantle {
 
 
 
-
 // src/region.cpp
 
 namespace mantle {
@@ -2645,7 +2137,7 @@ inline
         , cycle_(INITIAL_CYCLE)
         , depth_(0)
         , finalizer_(finalizer)
-        , ledger_(domain.config().ledger_capacity)
+        , ledger_(domain.write_barrier_manager())
     {
         // Register ourselves as the region on this thread.
         {
@@ -2659,8 +2151,6 @@ inline
 
         // Synchronize with other regions until our cycle and phase match.
         {
-            ledger_.begin_transaction();
-
             id_ = domain_.bind(*this);
             while (cycle_ == INITIAL_CYCLE) {
                 constexpr bool non_blocking = false;
@@ -2743,19 +2233,6 @@ inline
     }
 
 inline
-    void Region::flush_operation(Operation operation) {
-        do {
-            constexpr bool non_blocking = false;
-            step(non_blocking);
-        } while (!ledger_.write(operation));
-    }
-
-inline
-    const OperationLedger& Region::ledger() const {
-        return ledger_;
-    }
-
-inline
     Endpoint& Region::domain_endpoint() {
         return connection_.server_endpoint();
     }
@@ -2776,9 +2253,7 @@ inline
             case MessageType::ENTER: {
                 assert((phase_ == Phase::RECV_ENTER) || (phase_ == Phase::RECV_ENTER_SENT_START));
 
-                // Wrap up the current transaction and submit ranges of operations
-                // that can be applied.
-                ledger_.commit_transaction();
+                WriteBarrier& write_barrier = ledger_.commit();
                 {
                     // Check if the region is ready to stop.
                     bool stop = true;
@@ -2788,15 +2263,13 @@ inline
                     region_endpoint().send_message(
                         Message {
                             .submit = {
-                                .type       = MessageType::SUBMIT,
-                                .stop       = stop,
-                                .increments = ledger_.transaction_log().select(0),
-                                .decrements = ledger_.transaction_log().select(2),
+                                .type          = MessageType::SUBMIT,
+                                .stop          = stop,
+                                .write_barrier = &write_barrier,
                             },
                         }
                     );
                 }
-                ledger_.begin_transaction();
 
                 transition(message.enter.cycle);
                 transition(Phase::RECV_RETIRE);
@@ -2991,10 +2464,10 @@ inline
             // The operation doesn't need to be re-encoded which makes this
             // much simpler than flushing an operation group.
             if (operation.type() == OperationType::INCREMENT) {
-                increments_.emplace_back(operation.mutable_object(), operation.value());
+                increments_.emplace_back(object, operation.value());
             }
             else {
-                decrements_.emplace_back(operation.mutable_object(), operation.value());
+                decrements_.emplace_back(object, operation.value());
             }
         }
         else {
@@ -3220,40 +2693,6 @@ inline
     }
 
 inline
-    void Object::start_increment_operation(uint8_t exponent) {
-        start_increment_operation(make_increment_operation(this, exponent));
-    }
-
-inline
-    void Object::start_increment_operation(Operation operation) {
-        assert(operation.type() == OperationType::INCREMENT);
-
-        if (Region* region = Region::thread_local_instance(); LIKELY(region)) {
-            region->start_increment_operation(*this, operation);
-        }
-        else {
-            // Leak.
-        }
-    }
-
-inline
-    void Object::start_decrement_operation(uint8_t exponent) {
-        start_decrement_operation(make_decrement_operation(this, exponent));
-    }
-
-inline
-    void Object::start_decrement_operation(Operation operation) {
-        assert(operation.type() == OperationType::DECREMENT);
-
-        if (Region* region = Region::thread_local_instance(); LIKELY(region)) {
-            region->start_decrement_operation(*this, operation);
-        }
-        else {
-            // Leak.
-        }
-    }
-
-inline
     bool Object::apply_increment(const uint32_t delta_magnitude) {
         reference_count_ += delta_magnitude;
         return true;
@@ -3318,21 +2757,35 @@ inline
     WriteBarrierSegment::WriteBarrierSegment()
         : prev(nullptr)
         , barrier(nullptr)
+        , mapping(WRITE_BARRIER_SEGMENT_CAPACITY * sizeof(Object*), true)
         , primed(false)
         , increment_count(0)
         , decrement_count(0)
-        , mapping(WRITE_BARRIER_CAPACITY * sizeof(Object*), true)
     {
     }
 
 inline
     Object** WriteBarrierSegment::cursor() {
-        return &objects()[increment_count + decrement_count];
+        Object** base = reinterpret_cast<Object**>(mapping.memory().data());
+        return base + (increment_count + decrement_count);
     }
 
 inline
-    std::span<Object*> WriteBarrierSegment::objects() {
-        return std::span{reinterpret_cast<Object**>(mapping.memory().data()), mapping.memory().size_bytes() / sizeof(Object*)};
+    std::span<Object*> WriteBarrierSegment::records() {
+        return {
+            reinterpret_cast<Object**>(mapping.memory().data()),
+            increment_count + decrement_count
+        };
+    }
+
+inline
+    std::span<Object*> WriteBarrierSegment::increment_records() {
+        return records().last(increment_count);
+    }
+
+inline
+    std::span<Object*> WriteBarrierSegment::decrement_records() {
+        return records().first(decrement_count);
     }
 
 inline
@@ -3350,11 +2803,6 @@ inline
     }
 
 inline
-    WriteBarrier::~WriteBarrier() {
-        assert(is_empty());
-    }
-
-inline
     Ledger& WriteBarrier::ledger() {
         return ledger_;
     }
@@ -3366,7 +2814,32 @@ inline
 
 inline
     bool WriteBarrier::is_empty() const {
-        return stack_ == nullptr;
+        if (increment_count() || decrement_count()) {
+            return false;
+        }
+
+        // Check if there are any non-committed writes.
+        if (stack_) {
+            switch (phase()) {
+                case Phase::STORE_DECREMENTS: {
+                    if (stack_->cursor() != ledger_.decrement_cursor().load(std::memory_order_acquire)) {
+                        return false;
+                    }
+                    break;
+                }
+                case Phase::STORE_INCREMENTS: {
+                    if (stack_->cursor() != ledger_.increment_cursor().load(std::memory_order_acquire)) {
+                        return false;
+                    }
+                    break;
+                }
+                default: {
+                    break;
+                }
+            }
+        }
+
+        return true;
     }
 
 inline
@@ -3426,12 +2899,8 @@ inline
     }
 
 inline
-    void WriteBarrier::commit(const bool pending_write) {
+    void WriteBarrier::commit() {
         assert(stack_);
-
-        if (pending_write) {
-            stack_->primed = false;
-        }
 
         switch (phase()) {
             case Phase::STORE_INCREMENTS: {
@@ -3475,36 +2944,32 @@ inline
     }
 
 inline
-    WriteBarrierManager::WriteBarrierManager() {
-        // TODO: Size the segment storage/pool based on the number of threads.
-    }
-
-inline
     int WriteBarrierManager::file_descriptor() {
         return page_fault_handler_.file_descriptor();
     }
 
 inline
-    void WriteBarrierManager::poll() {
+    void WriteBarrierManager::poll(const bool non_blocking) {
         page_fault_handler_.poll([this](std::span<const std::byte> memory, PageFaultHandler::Mode mode) {
             if (mode == PageFaultHandler::Mode::WRITE_PROTECT) {
                 WriteBarrierSegment* prev_segment;
                 memcpy(&prev_segment, memory.data(), sizeof(prev_segment));
 
                 WriteBarrier& barrier = *prev_segment->barrier;
-                barrier.commit(true);
+                barrier.commit();
 
                 WriteBarrierSegment& next_segment = allocate_segment();
                 assert(next_segment.primed);
                 barrier.push_back(next_segment);
 
                 // Allow the pending write to proceed now that the next segment has been installed.
+                prev_segment->primed = false;
                 page_fault_handler_.write_unprotect_memory(prev_segment->guard_page());
             }
             else {
                 abort();
             }
-        });
+        }, non_blocking);
     }
 
 inline
@@ -3539,7 +3004,6 @@ inline
         std::scoped_lock lock(segment_pool_mutex_);
 
         WriteBarrierSegment* segment = nullptr;
-
         if (UNLIKELY(segment_pool_.empty())) {
             segment = segment_pool_storage_.emplace_back(std::make_unique<WriteBarrierSegment>()).get();
             page_fault_handler_.register_memory(segment->guard_page(), {PageFaultHandler::Mode::WRITE_PROTECT});
@@ -3562,6 +3026,7 @@ inline
         segment.increment_count = 0;
         segment.decrement_count = 0;
 
+        // TODO: Limit the maximum capacity of this (with a config parameter).
         segment_pool_.push_back(&segment);
     }
 
@@ -3595,6 +3060,16 @@ inline
         return sequence_.load(std::memory_order_acquire);
     }
 
+    bool Ledger::is_empty() const {
+        for (const WriteBarrier& barrier : write_barriers_) {
+            if (!barrier.is_empty()) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
 inline
     auto Ledger::increment_cursor() -> Cursor& {
         return increment_cursor_;
@@ -3625,9 +3100,9 @@ inline
     }
 
 inline
-    void Ledger::step() {
-        increment_barrier().commit(false);
-        decrement_barrier().commit(false);
+    WriteBarrier& Ledger::commit() {
+        increment_barrier().commit();
+        decrement_barrier().commit();
 
         // Atomically advance all write barriers to the next phase.
         // Their phase is determined by the current sequence number.
@@ -3635,6 +3110,8 @@ inline
 
         increment_cursor_.store(increment_barrier().back()->cursor(), std::memory_order_release);
         decrement_cursor_.store(decrement_barrier().back()->cursor(), std::memory_order_release);
+
+        return barrier(WriteBarrierPhase::APPLY);
     }
 
 }
@@ -3754,18 +3231,17 @@ inline
     RegionController::RegionController(
         const RegionId region_id,
         RegionControllerGroup& controllers,
-        const OperationLedger& ledger,
+        WriteBarrierManager& write_barrier_manager,
         const Config& config
     )
         : region_id_(region_id)
         , controllers_(controllers)
-        , ledger_(ledger)
+        , write_barrier_manager_(write_barrier_manager)
         , config_(config)
         , state_(State::STARTING)
         , phase_(Phase::START)
         , cycle_(0)
-        , submitted_increments_(EMPTY_SEQUENCE_RANGE)
-        , submitted_decrements_(EMPTY_SEQUENCE_RANGE)
+        , write_barrier_(nullptr)
         , metrics_(operation_grouper_, object_grouper_)
     {
     }
@@ -3915,8 +3391,8 @@ inline
                         transition(State::RUNNING);
                     }
 
-                    submitted_increments_ = message.submit.increments;
-                    submitted_decrements_ = message.submit.decrements;
+                    // Hold onto this until all regions have submitted.
+                    write_barrier_ = message.submit.write_barrier;
                 }
                 break; // Redundant start messages are dropped.
             }
@@ -3986,14 +3462,16 @@ inline
             }
             case Phase::SUBMIT_BARRIER: {
                 // We are waiting for all regions to respond.
-                // NOTE: This phase can be combined with the next if we double buffer retired operations.
-                metrics_.increment_count += route_operations(
-                    OperationType::INCREMENT,
-                    submitted_increments_
-                );
-                metrics_.decrement_count += route_operations(
-                    OperationType::DECREMENT,
-                    submitted_decrements_
+                while (WriteBarrierSegment* segment = write_barrier_->pop_back()) {
+                    metrics_.increment_count += route_operations(OperationType::INCREMENT, segment->increment_records());
+                    metrics_.decrement_count += route_operations(OperationType::DECREMENT, segment->decrement_records());
+
+                    write_barrier_manager_.deallocate_segment(*segment);
+                }
+
+                // Make the write barrier ready for use again.
+                write_barrier_->push_back(
+                    write_barrier_manager_.allocate_segment()
                 );
                 break;
             }
@@ -4047,19 +3525,9 @@ inline
     }
 
 inline
-    size_t RegionController::route_operations(const OperationType type, SequenceRange range) {
-        size_t count = 0;
-
-        for (Sequence sequence = range.head; sequence != range.tail; ++sequence) {
-            Operation operation = ledger_.read(sequence);
-            if (type != operation.type()) {
-                continue;
-            }
-
-            const Object* object = operation.object();
-            if (!object) {
-                continue;
-            }
+    size_t RegionController::route_operations(const OperationType type, std::span<Object*> objects) {
+        for (Object* object : objects) {
+            const Operation operation = make_operation(object, type);
 
             const RegionId region_id = object->region_id();
             if (UNLIKELY(region_id >= controllers_.size())) {
@@ -4067,12 +3535,10 @@ inline
             }
 
             RegionController& controller = *controllers_[region_id];
-            controller.operation_grouper_.write(operation, true);
-
-            count += 1;
+            controller.operation_grouper_.write(operation, false);
         }
 
-        return count;
+        return objects.size();
     }
 
 inline
@@ -4222,6 +3688,7 @@ inline
         , running_(false)
     {
         selector_.add_watch(doorbell_.file_descriptor(), &doorbell_);
+        selector_.add_watch(write_barrier_manager_.file_descriptor(), &write_barrier_manager_);
 
         std::promise<void> init_promise;
         std::future<void> init_future = init_promise.get_future();
@@ -4256,6 +3723,11 @@ inline
 inline
     const Config& Domain::config() const {
         return config_;
+    }
+
+inline
+    WriteBarrierManager& Domain::write_barrier_manager() {
+        return write_barrier_manager_;
     }
 
 inline
@@ -4300,7 +3772,11 @@ inline
     void Domain::handle_event(void* user_data) {
         constexpr bool non_blocking = true;
 
-        if (user_data == &doorbell_) {
+        if (user_data == &write_barrier_manager_) {
+            // Resolve a write protection fault and resume the region.
+            write_barrier_manager_.poll(non_blocking);
+        }
+        else if (user_data == &doorbell_) {
             // We'll add a controller for the new region later.
             // Re-arm the doorbell now that we've awoken.
             doorbell_.poll(non_blocking);
@@ -4346,7 +3822,13 @@ inline
 
             // Create a controller to manage the region.
             {
-                auto controller = std::make_unique<RegionController>(region_id, controllers_, region.ledger(), config_);
+                auto controller = std::make_unique<RegionController>(
+                    region_id,
+                    controllers_,
+                    write_barrier_manager_,
+                    config_
+                );
+
                 controller->start(census.max_cycle());
                 controllers_.push_back(std::move(controller));
             }
@@ -4507,19 +3989,17 @@ namespace mantle {
 
 inline
     PageFaultHandler::PageFaultHandler()
-        : uffd_(-1)
-        , has_feature_thread_id_(false)
-        , has_feature_exact_address_(false)
+        : file_descriptor_(-1)
     {
-        uffd_ = static_cast<int>(syscall(SYS_userfaultfd, O_CLOEXEC | O_NONBLOCK | UFFD_USER_MODE_ONLY));
-        if (uffd_ < 0) {
+        file_descriptor_ = static_cast<int>(syscall(SYS_userfaultfd, O_CLOEXEC | O_NONBLOCK | UFFD_USER_MODE_ONLY));
+        if (file_descriptor_ < 0) {
             throw std::runtime_error("Failed to create userfaultfd");
         }
 
         // API handshake and feature detection must happen before we use the file descriptor.
         {
             constexpr uint64_t required_features = 0;
-            constexpr uint64_t optional_features = UFFD_FEATURE_THREAD_ID|UFFD_FEATURE_EXACT_ADDRESS;
+            constexpr uint64_t optional_features = 0;
 
             struct uffdio_api uffdio_api;
             memset(&uffdio_api, 0, sizeof(uffdio_api));
@@ -4527,15 +4007,12 @@ inline
             uffdio_api.features = required_features|optional_features;
             uffdio_api.ioctls = _UFFDIO_API | _UFFDIO_REGISTER | _UFFDIO_UNREGISTER;
 
-            if (ioctl(uffd_, UFFDIO_API, &uffdio_api) < 0) {
+            if (ioctl(file_descriptor_, UFFDIO_API, &uffdio_api) < 0) {
                 throw std::runtime_error("FaultHandler API handshake failed");
             }
             if ((uffdio_api.features & required_features) != required_features) {
                 throw std::runtime_error("FaultHandler API missing required features");
             }
-
-            has_feature_thread_id_ = static_cast<bool>(uffdio_api.features & UFFD_FEATURE_THREAD_ID);
-            has_feature_exact_address_ = static_cast<bool>(uffdio_api.features & UFFD_FEATURE_EXACT_ADDRESS);
 
             assert(uffdio_api.ioctls & (1ull << _UFFDIO_API));
             assert(uffdio_api.ioctls & (1ull << _UFFDIO_REGISTER));
@@ -4545,13 +4022,13 @@ inline
 
 inline
     PageFaultHandler::~PageFaultHandler() {
-        const int result = close(uffd_);
+        const int result = close(file_descriptor_);
         assert(result >= 0);
     }
 
 inline
     int PageFaultHandler::file_descriptor() const {
-        return uffd_;
+        return file_descriptor_;
     }
 
 inline
@@ -4565,7 +4042,7 @@ inline
 
         assert((uffdio_register.range.start % PAGE_SIZE) == 0);
 
-        if (ioctl(uffd_, UFFDIO_REGISTER, &uffdio_register) < 0) {
+        if (ioctl(file_descriptor_, UFFDIO_REGISTER, &uffdio_register) < 0) {
             throw std::runtime_error("Failed to register memory region");
         }
     }
@@ -4581,7 +4058,7 @@ inline
 
         assert((uffdio_register.range.start % PAGE_SIZE) == 0);
 
-        if (ioctl(uffd_, UFFDIO_UNREGISTER, &uffdio_register) < 0) {
+        if (ioctl(file_descriptor_, UFFDIO_UNREGISTER, &uffdio_register) < 0) {
             throw std::runtime_error("Failed to unregister memory region");
         }
     }
@@ -4598,7 +4075,7 @@ inline
 
         assert((uffdio_writeprotect.range.start % PAGE_SIZE) == 0);
 
-        if (ioctl(uffd_, UFFDIO_WRITEPROTECT, &uffdio_writeprotect) < 0) {
+        if (ioctl(file_descriptor_, UFFDIO_WRITEPROTECT, &uffdio_writeprotect) < 0) {
             throw std::runtime_error("Failed to write protect memory region");
         }
     }
@@ -4615,7 +4092,7 @@ inline
 
         assert((uffdio_writeprotect.range.start % PAGE_SIZE) == 0);
 
-        if (ioctl(uffd_, UFFDIO_WRITEPROTECT, &uffdio_writeprotect) < 0) {
+        if (ioctl(file_descriptor_, UFFDIO_WRITEPROTECT, &uffdio_writeprotect) < 0) {
             throw std::runtime_error("Failed to write unprotect memory region");
         }
     }
