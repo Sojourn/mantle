@@ -51,7 +51,7 @@ namespace mantle {
             metrics_.group_min = std::min(group_min_, metrics_.group_min);
             metrics_.group_max = std::max(group_max_, metrics_.group_max);
 
-            if constexpr (ENABLE_OBJECT_GROUPING) {
+            if constexpr (MANTLE_ENABLE_OBJECT_GROUPING) {
                 // Reset working memory.
                 output_.resize(input_.size());
                 for (size_t& offset: group_offsets_) {

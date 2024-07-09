@@ -260,7 +260,7 @@ namespace mantle {
             ScopedIncrement lock(depth_);
 
             if (garbage_) {
-                if constexpr (ENABLE_OBJECT_GROUPING) {
+                if constexpr (MANTLE_ENABLE_OBJECT_GROUPING) {
                     assert(garbage_->object_count == garbage_->group_offsets[garbage_->group_max + 1]);
 
                     garbage_->for_each_group([this](ObjectGroup group, std::span<Object*> members) {

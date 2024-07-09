@@ -46,14 +46,14 @@ TEST_CASE("Connection") {
         auto message = make_enter_message(0);
 
         // Fill the server_endpoint's RX stream.
-        for (size_t i = 0; i < STREAM_CAPACITY; ++i) {
+        for (size_t i = 0; i < MANTLE_STREAM_CAPACITY; ++i) {
             CHECK(client_endpoint.send_message(message));
         }
         CHECK(!client_endpoint.send_message(message));
 
         // Read everything and ensure the stream was exhausted.
         auto messages = server_endpoint.receive_messages(true);
-        CHECK(messages.size() == STREAM_CAPACITY);
+        CHECK(messages.size() == MANTLE_STREAM_CAPACITY);
         CHECK(server_endpoint.receive_messages(true).empty());
     }
 

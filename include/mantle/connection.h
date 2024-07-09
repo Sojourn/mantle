@@ -26,7 +26,7 @@ namespace mantle {
         Stream& operator=(const Stream&) = delete;
 
     public:
-        Stream(size_t minimum_capacity = STREAM_CAPACITY)
+        Stream(size_t minimum_capacity = MANTLE_STREAM_CAPACITY)
             : mask_()
             , head_(0)
             , tail_(0)
@@ -77,18 +77,18 @@ namespace mantle {
         }
 
     private:
-        struct alignas(CACHE_LINE_SIZE) Slot {
+        struct alignas(MANTLE_CACHE_LINE_SIZE) Slot {
             Message message;
         };
 
         std::vector<Slot> ring_;
         size_t            mask_;
 
-        alignas(CACHE_LINE_SIZE) AtomicSequence head_;
-        alignas(CACHE_LINE_SIZE) AtomicSequence tail_;
+        alignas(MANTLE_CACHE_LINE_SIZE) AtomicSequence head_;
+        alignas(MANTLE_CACHE_LINE_SIZE) AtomicSequence tail_;
 
-        alignas(CACHE_LINE_SIZE) Sequence private_head_; // Private to receive.
-        alignas(CACHE_LINE_SIZE) Sequence private_tail_; // Private to send.
+        alignas(MANTLE_CACHE_LINE_SIZE) Sequence private_head_; // Private to receive.
+        alignas(MANTLE_CACHE_LINE_SIZE) Sequence private_tail_; // Private to send.
     };
 
     class Endpoint {

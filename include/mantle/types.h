@@ -32,7 +32,7 @@ namespace mantle {
 
         [[nodiscard]]
         size_t group_member_count(ObjectGroup group) const {
-            if constexpr (!ENABLE_OBJECT_GROUPING) {
+            if constexpr (!MANTLE_ENABLE_OBJECT_GROUPING) {
                 abort();
             }
 
@@ -41,7 +41,7 @@ namespace mantle {
 
         [[nodiscard]]
         std::span<Object*> group_members(ObjectGroup group) {
-            if constexpr (!ENABLE_OBJECT_GROUPING) {
+            if constexpr (!MANTLE_ENABLE_OBJECT_GROUPING) {
                 abort();
             }
 
@@ -53,7 +53,7 @@ namespace mantle {
 
         template<typename Visitor>
         void for_each_group(Visitor&& visitor) {
-            if constexpr (!ENABLE_OBJECT_GROUPING) {
+            if constexpr (!MANTLE_ENABLE_OBJECT_GROUPING) {
                 abort();
             }
 

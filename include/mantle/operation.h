@@ -22,8 +22,6 @@ namespace mantle {
 
     struct Operation {
         // Lower 3 bit of the tag encode an exponent which is used for greater range.
-        // This is also a useful optimization for weighted references which are usually
-        // split on powers-of-two.
         static constexpr uintptr_t EXPONENT_BITS  = 2;
         static constexpr uintptr_t EXPONENT_SHIFT = 0;
         static constexpr uintptr_t EXPONENT_MASK  = ((1ull << EXPONENT_BITS) - 1) << EXPONENT_SHIFT;
@@ -99,31 +97,6 @@ namespace mantle {
     };
     static_assert(std::is_trivial_v<Operation>, "Operation must be a trivial type.");
 
-    // NOTE: `capacity == size` since it is always padded by null operations.
-    struct alignas(64) OperationBatch {
-        static constexpr size_t SIZE  = CACHE_LINE_SIZE / sizeof(Operation);
-        static constexpr size_t SHIFT = log2_floor(SIZE);
-        static constexpr size_t MASK  = SIZE - 1; // TODO: Remove this.
-
-        Operation operations[SIZE];
-
-        Operation& operator[](Sequence sequence);
-        const Operation& operator[](Sequence sequence) const;
-    };
-
-    struct OperationRange {
-        OperationBatch* head;
-        OperationBatch* tail;
-    };
-
-    inline Operation& OperationBatch::operator[](const Sequence sequence) {
-        return operations[sequence % SIZE];
-    }
-
-    inline const Operation& OperationBatch::operator[](const Sequence sequence) const {
-        return operations[sequence % SIZE];
-    }
-
     inline Operation make_operation(Object* object, const OperationType type, const uint8_t exponent = 0) {
         assert(exponent <= Operation::EXPONENT_MAX);
 
@@ -149,15 +122,6 @@ namespace mantle {
 
     inline Operation make_decrement_operation(Object* object, const uint8_t exponent = 0) {
         return make_operation(object, OperationType::DECREMENT, exponent);
-    }
-
-    template<typename OperationHandler>
-    void for_each_operation(const OperationBatch* first, const OperationBatch* last, OperationHandler&& handler) {
-        for (const OperationBatch* batch = first; batch != last; ++batch) {
-            for (const Operation& operation: batch->operations) {
-                handler(operation);
-            }
-        }
     }
 
     constexpr size_t to_index(OperationType type) {

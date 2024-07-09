@@ -25,21 +25,6 @@ namespace mantle {
         return stream;
     }
 
-    inline std::ostream& operator<<(std::ostream& stream, const OperationBatch& batch) {
-        std::stringstream ss;
-        ss << "OperationBatch(\n";
-        ss << "  operations: [";
-        for (Operation operation: batch.operations) {
-            if (operation) {
-                ss << operation << ", ";
-            }
-        }
-        ss << "]";
-
-        stream << ss.str();
-        return stream;
-    }
-
     inline std::ostream& operator<<(std::ostream& stream, const RegionControllerGroup& controllers) {
         std::stringstream ss;
         ss << "RegionControllerGroup(\n";

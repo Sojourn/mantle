@@ -46,7 +46,7 @@ namespace mantle {
     WriteBarrierSegment::WriteBarrierSegment()
         : prev(nullptr)
         , barrier(nullptr)
-        , mapping(WRITE_BARRIER_SEGMENT_CAPACITY * sizeof(Object*), true)
+        , mapping(MANTLE_WRITE_BARRIER_SEGMENT_CAPACITY * sizeof(Object*), true)
         , primed(false)
         , increment_count(0)
         , decrement_count(0)

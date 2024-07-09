@@ -12,7 +12,7 @@ TEST_CASE("ObjectGrouper") {
     Object object2(1);
     Object object3(3);
 
-    if (ENABLE_OBJECT_GROUPING) {
+    if (MANTLE_ENABLE_OBJECT_GROUPING) {
         for (size_t i = 0; i < 3; ++i) {
             grouper.write(object3);
             grouper.write(object2);

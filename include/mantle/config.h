@@ -4,25 +4,30 @@
 #include <optional>
 #include <cstddef>
 
-// TODO: Use macros for the global variables instead of global variables.
+// TODO: Do platform detection, this is lazy.
+#ifndef MANTLE_CACHE_LINE_SIZE
+#  define MANTLE_CACHE_LINE_SIZE 64
+#endif
+
+#ifndef MANTLE_ENABLE_OBJECT_GROUPING
+#  define MANTLE_ENABLE_OBJECT_GROUPING true
+#endif
+
+// The number of messages that can be queued between `Domain` and `Region` endpoints.
+#ifndef MANTLE_STREAM_CAPACITY
+#  define MANTLE_STREAM_CAPACITY 4096
+#endif
+
+// This trades off memory usage for a reduced number of write protection faults
+// that need to be handled to extend write barriers.
+// Ideally this is sized such that write protection faults never happen in steady state.
+#ifndef MANTLE_WRITE_BARRIER_SEGMENT_CAPACITY
+#  define MANTLE_WRITE_BARRIER_SEGMENT_CAPACITY (16 * 1024)
+#endif
 
 namespace mantle {
 
-    // This flag enables weighted reference counting in handles.
-    constexpr bool ENABLE_WEIGHTED_REFERENCE_COUNTING = false;
-    constexpr bool ENABLE_OBJECT_GROUPING = true;
-
-    // The number of messages that can be queued between `Domain` and `Region` endpoints.
-    constexpr size_t STREAM_CAPACITY = 4096;
-
-    // FIXME: Some architectures have cache lines that are 128 bytes. We should detect this.
-    constexpr size_t CACHE_LINE_SIZE = 64;
-
-    // This trades off memory usage for a reduced number of write protection faults
-    // that need to be handled to extend write barriers.
-    // Ideally this is sized such that write protection faults never happen in steady state.
-    constexpr size_t WRITE_BARRIER_SEGMENT_CAPACITY = 16 * 1024;
-
+    // TODO: Remove this.
     struct Config {
         std::optional<std::span<size_t>> domain_cpu_affinity;
 
@@ -33,4 +38,5 @@ namespace mantle {
         // and net their effects to reduce the number of operations that need to be retired/applied.
         bool operation_grouper_enabled = true;
     };
+
 }

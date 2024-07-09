@@ -47,25 +47,30 @@
 // include/mantle/config.h
 
 
-// TODO: Use macros for the global variables instead of global variables.
+// TODO: Do platform detection, this is lazy.
+#ifndef MANTLE_CACHE_LINE_SIZE
+#  define MANTLE_CACHE_LINE_SIZE 64
+#endif
+
+#ifndef MANTLE_ENABLE_OBJECT_GROUPING
+#  define MANTLE_ENABLE_OBJECT_GROUPING true
+#endif
+
+// The number of messages that can be queued between `Domain` and `Region` endpoints.
+#ifndef MANTLE_STREAM_CAPACITY
+#  define MANTLE_STREAM_CAPACITY 4096
+#endif
+
+// This trades off memory usage for a reduced number of write protection faults
+// that need to be handled to extend write barriers.
+// Ideally this is sized such that write protection faults never happen in steady state.
+#ifndef MANTLE_WRITE_BARRIER_SEGMENT_CAPACITY
+#  define MANTLE_WRITE_BARRIER_SEGMENT_CAPACITY (16 * 1024)
+#endif
 
 namespace mantle {
 
-    // This flag enables weighted reference counting in handles.
-    constexpr bool ENABLE_WEIGHTED_REFERENCE_COUNTING = false;
-    constexpr bool ENABLE_OBJECT_GROUPING = true;
-
-    // The number of messages that can be queued between `Domain` and `Region` endpoints.
-    constexpr size_t STREAM_CAPACITY = 4096;
-
-    // FIXME: Some architectures have cache lines that are 128 bytes. We should detect this.
-    constexpr size_t CACHE_LINE_SIZE = 64;
-
-    // This trades off memory usage for a reduced number of write protection faults
-    // that need to be handled to extend write barriers.
-    // Ideally this is sized such that write protection faults never happen in steady state.
-    constexpr size_t WRITE_BARRIER_SEGMENT_CAPACITY = 16 * 1024;
-
+    // TODO: Remove this.
     struct Config {
         std::optional<std::span<size_t>> domain_cpu_affinity;
 
@@ -76,6 +81,7 @@ namespace mantle {
         // and net their effects to reduce the number of operations that need to be retired/applied.
         bool operation_grouper_enabled = true;
     };
+
 }
 
 
@@ -103,7 +109,7 @@ namespace mantle {
 
         [[nodiscard]]
         size_t group_member_count(ObjectGroup group) const {
-            if constexpr (!ENABLE_OBJECT_GROUPING) {
+            if constexpr (!MANTLE_ENABLE_OBJECT_GROUPING) {
                 abort();
             }
 
@@ -112,7 +118,7 @@ namespace mantle {
 
         [[nodiscard]]
         std::span<Object*> group_members(ObjectGroup group) {
-            if constexpr (!ENABLE_OBJECT_GROUPING) {
+            if constexpr (!MANTLE_ENABLE_OBJECT_GROUPING) {
                 abort();
             }
 
@@ -124,7 +130,7 @@ namespace mantle {
 
         template<typename Visitor>
         void for_each_group(Visitor&& visitor) {
-            if constexpr (!ENABLE_OBJECT_GROUPING) {
+            if constexpr (!MANTLE_ENABLE_OBJECT_GROUPING) {
                 abort();
             }
 
@@ -261,8 +267,6 @@ namespace mantle {
 
     struct Operation {
         // Lower 3 bit of the tag encode an exponent which is used for greater range.
-        // This is also a useful optimization for weighted references which are usually
-        // split on powers-of-two.
         static constexpr uintptr_t EXPONENT_BITS  = 2;
         static constexpr uintptr_t EXPONENT_SHIFT = 0;
         static constexpr uintptr_t EXPONENT_MASK  = ((1ull << EXPONENT_BITS) - 1) << EXPONENT_SHIFT;
@@ -338,31 +342,6 @@ namespace mantle {
     };
     static_assert(std::is_trivial_v<Operation>, "Operation must be a trivial type.");
 
-    // NOTE: `capacity == size` since it is always padded by null operations.
-    struct alignas(64) OperationBatch {
-        static constexpr size_t SIZE  = CACHE_LINE_SIZE / sizeof(Operation);
-        static constexpr size_t SHIFT = log2_floor(SIZE);
-        static constexpr size_t MASK  = SIZE - 1; // TODO: Remove this.
-
-        Operation operations[SIZE];
-
-        Operation& operator[](Sequence sequence);
-        const Operation& operator[](Sequence sequence) const;
-    };
-
-    struct OperationRange {
-        OperationBatch* head;
-        OperationBatch* tail;
-    };
-
-    inline Operation& OperationBatch::operator[](const Sequence sequence) {
-        return operations[sequence % SIZE];
-    }
-
-    inline const Operation& OperationBatch::operator[](const Sequence sequence) const {
-        return operations[sequence % SIZE];
-    }
-
     inline Operation make_operation(Object* object, const OperationType type, const uint8_t exponent = 0) {
         assert(exponent <= Operation::EXPONENT_MAX);
 
@@ -388,15 +367,6 @@ namespace mantle {
 
     inline Operation make_decrement_operation(Object* object, const uint8_t exponent = 0) {
         return make_operation(object, OperationType::DECREMENT, exponent);
-    }
-
-    template<typename OperationHandler>
-    void for_each_operation(const OperationBatch* first, const OperationBatch* last, OperationHandler&& handler) {
-        for (const OperationBatch* batch = first; batch != last; ++batch) {
-            for (const Operation& operation: batch->operations) {
-                handler(operation);
-            }
-        }
     }
 
     constexpr size_t to_index(OperationType type) {
@@ -1230,7 +1200,7 @@ namespace mantle {
             metrics_.group_min = std::min(group_min_, metrics_.group_min);
             metrics_.group_max = std::max(group_max_, metrics_.group_max);
 
-            if constexpr (ENABLE_OBJECT_GROUPING) {
+            if constexpr (MANTLE_ENABLE_OBJECT_GROUPING) {
                 // Reset working memory.
                 output_.resize(input_.size());
                 for (size_t& offset: group_offsets_) {
@@ -1346,7 +1316,7 @@ namespace mantle {
         Stream& operator=(const Stream&) = delete;
 
     public:
-        Stream(size_t minimum_capacity = STREAM_CAPACITY)
+        Stream(size_t minimum_capacity = MANTLE_STREAM_CAPACITY)
             : mask_()
             , head_(0)
             , tail_(0)
@@ -1397,18 +1367,18 @@ namespace mantle {
         }
 
     private:
-        struct alignas(CACHE_LINE_SIZE) Slot {
+        struct alignas(MANTLE_CACHE_LINE_SIZE) Slot {
             Message message;
         };
 
         std::vector<Slot> ring_;
         size_t            mask_;
 
-        alignas(CACHE_LINE_SIZE) AtomicSequence head_;
-        alignas(CACHE_LINE_SIZE) AtomicSequence tail_;
+        alignas(MANTLE_CACHE_LINE_SIZE) AtomicSequence head_;
+        alignas(MANTLE_CACHE_LINE_SIZE) AtomicSequence tail_;
 
-        alignas(CACHE_LINE_SIZE) Sequence private_head_; // Private to receive.
-        alignas(CACHE_LINE_SIZE) Sequence private_tail_; // Private to send.
+        alignas(MANTLE_CACHE_LINE_SIZE) Sequence private_head_; // Private to receive.
+        alignas(MANTLE_CACHE_LINE_SIZE) Sequence private_tail_; // Private to send.
     };
 
     class Endpoint {
@@ -2010,21 +1980,6 @@ namespace mantle {
         return stream;
     }
 
-    inline std::ostream& operator<<(std::ostream& stream, const OperationBatch& batch) {
-        std::stringstream ss;
-        ss << "OperationBatch(\n";
-        ss << "  operations: [";
-        for (Operation operation: batch.operations) {
-            if (operation) {
-                ss << operation << ", ";
-            }
-        }
-        ss << "]";
-
-        stream << ss.str();
-        return stream;
-    }
-
     inline std::ostream& operator<<(std::ostream& stream, const RegionControllerGroup& controllers) {
         std::stringstream ss;
         ss << "RegionControllerGroup(\n";
@@ -2340,7 +2295,7 @@ inline
             ScopedIncrement lock(depth_);
 
             if (garbage_) {
-                if constexpr (ENABLE_OBJECT_GROUPING) {
+                if constexpr (MANTLE_ENABLE_OBJECT_GROUPING) {
                     assert(garbage_->object_count == garbage_->group_offsets[garbage_->group_max + 1]);
 
                     garbage_->for_each_group([this](ObjectGroup group, std::span<Object*> members) {
@@ -2742,7 +2697,7 @@ inline
     WriteBarrierSegment::WriteBarrierSegment()
         : prev(nullptr)
         , barrier(nullptr)
-        , mapping(WRITE_BARRIER_SEGMENT_CAPACITY * sizeof(Object*), true)
+        , mapping(MANTLE_WRITE_BARRIER_SEGMENT_CAPACITY * sizeof(Object*), true)
         , primed(false)
         , increment_count(0)
         , decrement_count(0)
