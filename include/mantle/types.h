@@ -21,21 +21,6 @@ namespace mantle {
     using AtomicSequence  = std::atomic_uint64_t;
     using Sequence        = AtomicSequence::value_type;
 
-    // TODO: Make `Message` use a variant instead of a union so we can construct this properly.
-    struct SequenceRange {
-        Sequence head;
-        Sequence tail;
-
-        [[nodiscard]]
-        constexpr size_t size() const {
-            return tail - head;
-        }
-
-        constexpr auto operator<=>(const SequenceRange&) const noexcept = default;
-    };
-
-    constexpr SequenceRange EMPTY_SEQUENCE_RANGE = { .head=0, .tail=0 };
-
     // TODO: Move this into a separate file. It knows too much aabout other classes.
     struct ObjectGroups {
         Object**         objects;
