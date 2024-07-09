@@ -142,6 +142,7 @@ WorkerThread::WorkerThread(Driver& driver)
     : driver_(driver)
     , object_allocator_(*this, driver.settings().worker_object_count)
     , action_generator_(driver.settings())
+    , inbox_(new Inbox)
     , metrics_(Metrics {
         .object_allocator = object_allocator_.metrics(),
         .action_counts    = {},
@@ -160,6 +161,8 @@ WorkerThread::WorkerThread(Driver& driver)
                 // }
                 step(region);
             }
+
+            working_set_.clear();
         }
         driver_.worker_thread_stopping(*this);
     });
@@ -167,6 +170,10 @@ WorkerThread::WorkerThread(Driver& driver)
 
 WorkerThread::~WorkerThread() {
     thread_.join();
+
+    // Leak this intentionally--we may have received objects
+    // after stopping the region that we can't safely cleanup.
+    inbox_ = nullptr;
 }
 
 auto WorkerThread::metrics() -> Metrics& {
@@ -259,18 +266,18 @@ void WorkerThread::step(Region& region) {
 void WorkerThread::deliver(Packet packet) {
     std::scoped_lock<std::mutex> lock(inbox_mutex_);
 
-    inbox_.push_back(std::move(packet));
+    inbox_->push_back(std::move(packet));
 }
 
 bool WorkerThread::receive(Packet& packet) {
     std::scoped_lock<std::mutex> lock(inbox_mutex_);
 
-    if (inbox_.empty()) {
+    if (inbox_->empty()) {
         return false;
     }
 
-    packet = std::move(inbox_.front());
-    inbox_.pop_front();
+    packet = std::move(inbox_->front());
+    inbox_->pop_front();
     return true;
 }
 

@@ -159,7 +159,7 @@ private:
     ActionGenerator     action_generator_;
 
     std::mutex          inbox_mutex_;
-    Inbox               inbox_;
+    Inbox*              inbox_;
     WorkingSet          working_set_;
 
     Metrics             metrics_;

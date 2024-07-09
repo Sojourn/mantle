@@ -43,10 +43,6 @@ namespace mantle {
         struct Submit {
             MessageType   type;
             bool          stop; // The region is ready to stop.
-            SequenceRange increments;
-            SequenceRange decrements;
-
-            // This will eventually replace increments and decrements.
             WriteBarrier* write_barrier;
         } submit;
 

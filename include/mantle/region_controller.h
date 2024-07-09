@@ -17,7 +17,6 @@
 #include "mantle/object.h"
 #include "mantle/object_grouper.h"
 #include "mantle/operation.h"
-#include "mantle/operation_ledger.h"
 #include "mantle/operation_grouper.h"
 
 #define MANTLE_REGION_CONTROLLER_ACTIONS(X) \
@@ -170,7 +169,6 @@ namespace mantle {
         RegionController(
             RegionId region_id,
             RegionControllerGroup& controllers,
-            const OperationLedger& ledger,
             WriteBarrierManager& write_barrier_manager,
             const Config& config
         );
@@ -202,22 +200,18 @@ namespace mantle {
         void transition(Phase next_phase);
         void transition(Cycle next_cycle);
 
-        size_t route_operations(OperationType type, SequenceRange range);
         size_t route_operations(OperationType type, std::span<Object*> objects);
 
     private:
         RegionId               region_id_;
         RegionControllerGroup& controllers_;
         WriteBarrierManager&   write_barrier_manager_;
-        const OperationLedger& ledger_;
         const Config&          config_;
 
         State                  state_;
         Phase                  phase_;
         Cycle                  cycle_;
 
-        SequenceRange          submitted_increments_;
-        SequenceRange          submitted_decrements_;
         WriteBarrier*          write_barrier_;
         OperationGrouper       operation_grouper_;
         ObjectGrouper          object_grouper_;

@@ -43,7 +43,6 @@ namespace mantle {
         , depth_(0)
         , finalizer_(finalizer)
         , ledger_(domain.write_barrier_manager())
-        , operation_ledger_(domain.config().ledger_capacity)
     {
         // Register ourselves as the region on this thread.
         {
@@ -57,8 +56,6 @@ namespace mantle {
 
         // Synchronize with other regions until our cycle and phase match.
         {
-            operation_ledger_.begin_transaction();
-
             id_ = domain_.bind(*this);
             while (cycle_ == INITIAL_CYCLE) {
                 constexpr bool non_blocking = false;
@@ -119,7 +116,7 @@ namespace mantle {
         // Start a new cycle if needed. We need to be in the initial phase, and have a reason to do it.
         bool start_cycle = true;
         start_cycle &= phase_ == INITIAL_PHASE;
-        start_cycle &= cycle_ == INITIAL_CYCLE || (state_ == State::STOPPING || !ledger_.is_empty() || !operation_ledger_.is_empty());
+        start_cycle &= cycle_ == INITIAL_CYCLE || (state_ == State::STOPPING || !ledger_.is_empty());
         if (start_cycle) {
             region_endpoint().send_message(
                 Message {
@@ -138,11 +135,6 @@ namespace mantle {
         }
 
         finalize_garbage();
-    }
-
-    MANTLE_SOURCE_INLINE
-    const OperationLedger& Region::operation_ledger() const {
-        return operation_ledger_;
     }
 
     MANTLE_SOURCE_INLINE
@@ -167,30 +159,22 @@ namespace mantle {
                 assert((phase_ == Phase::RECV_ENTER) || (phase_ == Phase::RECV_ENTER_SENT_START));
 
                 WriteBarrier& write_barrier = ledger_.commit();
-
-                // Wrap up the current transaction and submit ranges of operations
-                // that can be applied.
-                operation_ledger_.commit_transaction();
                 {
                     // Check if the region is ready to stop.
                     bool stop = true;
                     stop &= state_ == State::STOPPING;
                     stop &= ledger_.is_empty();
-                    stop &= operation_ledger_.is_empty();
 
                     region_endpoint().send_message(
                         Message {
                             .submit = {
                                 .type          = MessageType::SUBMIT,
                                 .stop          = stop,
-                                .increments    = operation_ledger_.transaction_log().select(0),
-                                .decrements    = operation_ledger_.transaction_log().select(2),
                                 .write_barrier = &write_barrier,
                             },
                         }
                     );
                 }
-                operation_ledger_.begin_transaction();
 
                 transition(message.enter.cycle);
                 transition(Phase::RECV_RETIRE);

@@ -121,20 +121,16 @@ namespace mantle {
     RegionController::RegionController(
         const RegionId region_id,
         RegionControllerGroup& controllers,
-        const OperationLedger& ledger,
         WriteBarrierManager& write_barrier_manager,
         const Config& config
     )
         : region_id_(region_id)
         , controllers_(controllers)
         , write_barrier_manager_(write_barrier_manager)
-        , ledger_(ledger)
         , config_(config)
         , state_(State::STARTING)
         , phase_(Phase::START)
         , cycle_(0)
-        , submitted_increments_(EMPTY_SEQUENCE_RANGE)
-        , submitted_decrements_(EMPTY_SEQUENCE_RANGE)
         , write_barrier_(nullptr)
         , metrics_(operation_grouper_, object_grouper_)
     {
@@ -285,8 +281,7 @@ namespace mantle {
                         transition(State::RUNNING);
                     }
 
-                    submitted_increments_ = message.submit.increments;
-                    submitted_decrements_ = message.submit.decrements;
+                    // Hold onto this until all regions have submitted.
                     write_barrier_ = message.submit.write_barrier;
                 }
                 break; // Redundant start messages are dropped.
@@ -357,32 +352,17 @@ namespace mantle {
             }
             case Phase::SUBMIT_BARRIER: {
                 // We are waiting for all regions to respond.
-                metrics_.increment_count += route_operations(
-                    OperationType::INCREMENT,
-                    submitted_increments_
-                );
-                metrics_.decrement_count += route_operations(
-                    OperationType::DECREMENT,
-                    submitted_decrements_
-                );
+                while (WriteBarrierSegment* segment = write_barrier_->pop_back()) {
+                    metrics_.increment_count += route_operations(OperationType::INCREMENT, segment->increment_records());
+                    metrics_.decrement_count += route_operations(OperationType::DECREMENT, segment->decrement_records());
 
-                if (write_barrier_) {
-                    while (WriteBarrierSegment* segment = write_barrier_->pop_back()) {
-                        metrics_.increment_count += route_operations(OperationType::INCREMENT, segment->increment_records());
-                        metrics_.decrement_count += route_operations(OperationType::DECREMENT, segment->decrement_records());
-
-                        write_barrier_manager_.deallocate_segment(*segment);
-                    }
-
-                    // Make the write barrier ready for use again.
-                    write_barrier_->push_back(
-                        write_barrier_manager_.allocate_segment()
-                    );
-                }
-                else {
-                    // TEMP: Remove the conditional once transitioned.
+                    write_barrier_manager_.deallocate_segment(*segment);
                 }
 
+                // Make the write barrier ready for use again.
+                write_barrier_->push_back(
+                    write_barrier_manager_.allocate_segment()
+                );
                 break;
             }
             case Phase::RETIRE_BARRIER: {
@@ -432,35 +412,6 @@ namespace mantle {
 
         debug("[region_controller:{}] transition cycle {} to {}", region_id_, cycle_, next_cycle);
         cycle_ = next_cycle;
-    }
-
-    MANTLE_SOURCE_INLINE
-    size_t RegionController::route_operations(const OperationType type, SequenceRange range) {
-        size_t count = 0;
-
-        for (Sequence sequence = range.head; sequence != range.tail; ++sequence) {
-            Operation operation = ledger_.read(sequence);
-            if (type != operation.type()) {
-                continue;
-            }
-
-            const Object* object = operation.object();
-            if (!object) {
-                continue;
-            }
-
-            const RegionId region_id = object->region_id();
-            if (UNLIKELY(region_id >= controllers_.size())) {
-                abort();
-            }
-
-            RegionController& controller = *controllers_[region_id];
-            controller.operation_grouper_.write(operation, false);
-
-            count += 1;
-        }
-
-        return count;
     }
 
     MANTLE_SOURCE_INLINE

@@ -10,7 +10,6 @@
 #include "mantle/message.h"
 #include "mantle/connection.h"
 #include "mantle/operation.h"
-#include "mantle/operation_ledger.h"
 
 #define MANTLE_REGION_STATES(X) \
     X(RUNNING)                  \
@@ -74,8 +73,6 @@ namespace mantle {
     private:
         friend class Domain;
 
-        const OperationLedger& operation_ledger() const;
-
         Endpoint& domain_endpoint();
         Endpoint& region_endpoint();
 
@@ -103,7 +100,6 @@ namespace mantle {
 
         ObjectFinalizer&            finalizer_;
         Ledger                      ledger_;
-        OperationLedger             operation_ledger_;
 
         std::optional<ObjectGroups> garbage_;
         std::vector<Object*>        garbage_pile_;

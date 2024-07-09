@@ -19,14 +19,12 @@ static void deliver_start_message(RegionControllerGroup& controllers, RegionId r
     deliver_message(controllers, region_id, message);
 }
 
-static void deliver_submit_message(RegionControllerGroup& controllers, RegionId region_id, SequenceRange increments, SequenceRange decrements) {
+static void deliver_submit_message(RegionControllerGroup& controllers, RegionId region_id, WriteBarrier& write_barrier) {
     Message message = {
         .submit = {
             .type          = MessageType::SUBMIT,
             .stop          = false,
-            .increments    = increments,
-            .decrements    = decrements,
-            .write_barrier = nullptr,
+            .write_barrier = &write_barrier,
         },
     };
 
@@ -40,20 +38,14 @@ TEST_CASE("RegionController") {
     Config config;
 
     WriteBarrierManager write_barrier_manager;
-
-    std::vector<std::unique_ptr<OperationLedger>> ledgers;
-    ledgers.push_back(std::make_unique<OperationLedger>(config.ledger_capacity));
-    ledgers.push_back(std::make_unique<OperationLedger>(config.ledger_capacity));
-    ledgers.push_back(std::make_unique<OperationLedger>(config.ledger_capacity));
-    ledgers.push_back(std::make_unique<OperationLedger>(config.ledger_capacity));
+    Ledger ledger(write_barrier_manager);
 
     RegionControllerGroup controllers;
-    for (RegionId region_id = 0; region_id < ledgers.size(); ++region_id) {
+    for (RegionId region_id = 0; region_id < 4; ++region_id) {
         controllers.push_back(
             std::make_unique<RegionController>(
                 region_id,
                 controllers,
-                *ledgers[region_id],
                 write_barrier_manager,
                 config
             )
@@ -61,10 +53,6 @@ TEST_CASE("RegionController") {
     }
 
     RegionControllerCensus census = RegionControllerCensus(controllers);
-
-    SequenceRange empty_sequence_range = {0, 0};
-    const SequenceRange& increments = empty_sequence_range;
-    const SequenceRange& decrements = empty_sequence_range;
 
     SECTION("Start initiated by one region") {
         deliver_start_message(controllers, 0);
@@ -106,13 +94,13 @@ TEST_CASE("RegionController") {
         CHECK(census.all(Action::RECEIVE));
         CHECK(census.all(Phase::SUBMIT));
 
-        deliver_submit_message(controllers, 0, increments, decrements);
+        deliver_submit_message(controllers, 0, ledger.commit());
         census = synchronize(controllers);
         CHECK(census.any(Phase::SUBMIT));
         CHECK(census.any(Phase::SUBMIT_BARRIER));
 
         for (RegionId region_id = 0; region_id < controllers.size(); ++region_id) {
-            deliver_submit_message(controllers, region_id, increments, decrements);
+            deliver_submit_message(controllers, region_id, ledger.commit());
         }
         census = RegionControllerCensus(controllers);
         CHECK(census.all(Phase::SUBMIT_BARRIER));
