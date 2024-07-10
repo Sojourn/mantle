@@ -98,6 +98,11 @@ namespace mantle {
         return Ref<T>(object);
     }
 
+    template<typename T, typename... Args>
+    inline Ref<T> bind_new(Args&&... args) {
+        return bind<T>(*(new T(std::forward<Args>(args)...)));
+    }
+
 }
 
 namespace std {
