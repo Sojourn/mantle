@@ -45,9 +45,12 @@ namespace mantle {
                 abort();
             }
 
+            const size_t offset = group_offsets[static_cast<size_t>(group)];
+            const size_t length = group_member_count(group);
+
             return {
-                &objects[group],
-                group_member_count(group)
+                &objects[offset],
+                length
             };
         }
 
