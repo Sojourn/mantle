@@ -1,7 +1,7 @@
 #include "mantle/region.h"
 #include "mantle/domain.h"
 #include "mantle/object.h"
-#include "mantle/object_finalizer.h"
+#include "mantle/finalizer.h"
 #include "mantle/config.h"
 #include "mantle/debug.h"
 #include <cassert>
@@ -34,7 +34,7 @@ namespace mantle {
     };
 
     MANTLE_SOURCE_INLINE
-    Region::Region(Domain& domain, ObjectFinalizer& finalizer)
+    Region::Region(Domain& domain, Finalizer& finalizer)
         : domain_(domain)
         , id_(std::numeric_limits<RegionId>::max())
         , state_(INITIAL_STATE)
@@ -238,7 +238,7 @@ namespace mantle {
     MANTLE_SOURCE_INLINE
     void Region::finalize_garbage() {
         if (depth_) {
-            // `Region::step` and `ObjectFinalizer::finalize` are co-recursive.
+            // `Region::step` and `Finalizer::finalize` are co-recursive.
             // Short circuiting object finalization in nested `Region::step` calls
             // prevents unbounded stack usage.
             assert(depth_ == 1);

@@ -79,7 +79,7 @@ struct TestObject : Object {
     void record_action(const Action& action);
 };
 
-class TestObjectAllocator final : public ObjectFinalizer {
+class TestObjectAllocator final : public Finalizer {
 public:
     struct Metrics {
         size_t allocation_failure_count;

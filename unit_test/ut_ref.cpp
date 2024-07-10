@@ -3,7 +3,7 @@
 
 using namespace mantle;
 
-class BasicObjectFinalizer final : public ObjectFinalizer {
+class BasicObjectFinalizer final : public Finalizer {
 public:
     size_t count = 0;
 

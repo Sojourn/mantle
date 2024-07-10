@@ -27,7 +27,7 @@ namespace mantle {
 
     class Domain;
     class Object;
-    class ObjectFinalizer;
+    class Finalizer;
 
     enum class RegionState {
 #define X(MANTLE_REGION_STATE) \
@@ -51,7 +51,7 @@ namespace mantle {
         using Phase = RegionPhase;
         using Cycle = Sequence;
 
-        Region(Domain& domain, ObjectFinalizer& finalizer);
+        Region(Domain& domain, Finalizer& finalizer);
         ~Region();
 
         Region(Region&&) = delete;
@@ -99,7 +99,7 @@ namespace mantle {
         Cycle                       cycle_;
         size_t                      depth_;
 
-        ObjectFinalizer&            finalizer_;
+        Finalizer&                  finalizer_;
         Ledger                      ledger_;
 
         std::optional<ObjectGroups> garbage_;

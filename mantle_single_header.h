@@ -1671,7 +1671,7 @@ namespace mantle {
 
     class Domain;
     class Object;
-    class ObjectFinalizer;
+    class Finalizer;
 
     enum class RegionState {
 #define X(MANTLE_REGION_STATE) \
@@ -1695,7 +1695,7 @@ namespace mantle {
         using Phase = RegionPhase;
         using Cycle = Sequence;
 
-        Region(Domain& domain, ObjectFinalizer& finalizer);
+        Region(Domain& domain, Finalizer& finalizer);
         ~Region();
 
         Region(Region&&) = delete;
@@ -1743,7 +1743,7 @@ namespace mantle {
         Cycle                       cycle_;
         size_t                      depth_;
 
-        ObjectFinalizer&            finalizer_;
+        Finalizer&                  finalizer_;
         Ledger                      ledger_;
 
         std::optional<ObjectGroups> garbage_;
@@ -1775,7 +1775,7 @@ namespace mantle {
         friend class Region;
 
     public:
-        explicit Domain(std::optional<std::span<size_t>> thread_cpu_affinity = std::nullopt);
+        explicit Domain(std::optional<std::span<size_t>> thread_cpu_affinities = std::nullopt);
         ~Domain();
 
         Domain(Domain&&) = delete;
@@ -1923,15 +1923,15 @@ namespace std {
 }
 
 
-// include/mantle/object_finalizer.h
+// include/mantle/finalizer.h
 
 
 namespace mantle {
 
     // An interface for cleaning up objects once they are no longer referenced.
-    class ObjectFinalizer {
+    class Finalizer {
     public:
-        virtual ~ObjectFinalizer() = default;
+        virtual ~Finalizer() = default;
 
         // Objects are finalized in batches based on group membership.
         virtual void finalize(ObjectGroup group, std::span<Object*> objects) noexcept = 0;
@@ -2049,7 +2049,7 @@ namespace mantle {
     };
 
 inline
-    Region::Region(Domain& domain, ObjectFinalizer& finalizer)
+    Region::Region(Domain& domain, Finalizer& finalizer)
         : domain_(domain)
         , id_(std::numeric_limits<RegionId>::max())
         , state_(INITIAL_STATE)
@@ -2253,7 +2253,7 @@ inline
 inline
     void Region::finalize_garbage() {
         if (depth_) {
-            // `Region::step` and `ObjectFinalizer::finalize` are co-recursive.
+            // `Region::step` and `Finalizer::finalize` are co-recursive.
             // Short circuiting object finalization in nested `Region::step` calls
             // prevents unbounded stack usage.
             assert(depth_ == 1);
@@ -3601,7 +3601,7 @@ inline
 namespace mantle {
 
 inline
-    Domain::Domain(std::optional<std::span<size_t>> thread_cpu_affinity)
+    Domain::Domain(std::optional<std::span<size_t>> thread_cpu_affinities)
         : running_(false)
     {
         selector_.add_watch(doorbell_.file_descriptor(), &doorbell_);
@@ -3610,11 +3610,11 @@ inline
         std::promise<void> init_promise;
         std::future<void> init_future = init_promise.get_future();
 
-        thread_ = std::thread([init_promise = std::move(init_promise), thread_cpu_affinity, this]() mutable {
+        thread_ = std::thread([init_promise = std::move(init_promise), thread_cpu_affinities, this]() mutable {
             try {
                 debug("[domain] initializing thread");
-                if (thread_cpu_affinity) {
-                    set_cpu_affinity(*thread_cpu_affinity);
+                if (thread_cpu_affinities) {
+                    set_cpu_affinity(*thread_cpu_affinities);
                 }
 
                 init_promise.set_value();

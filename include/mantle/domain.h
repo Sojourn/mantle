@@ -20,7 +20,7 @@ namespace mantle {
         friend class Region;
 
     public:
-        explicit Domain(std::optional<std::span<size_t>> thread_cpu_affinity = std::nullopt);
+        explicit Domain(std::optional<std::span<size_t>> thread_cpu_affinities = std::nullopt);
         ~Domain();
 
         Domain(Domain&&) = delete;

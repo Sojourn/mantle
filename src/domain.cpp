@@ -8,7 +8,7 @@
 namespace mantle {
 
     MANTLE_SOURCE_INLINE
-    Domain::Domain(std::optional<std::span<size_t>> thread_cpu_affinity)
+    Domain::Domain(std::optional<std::span<size_t>> thread_cpu_affinities)
         : running_(false)
     {
         selector_.add_watch(doorbell_.file_descriptor(), &doorbell_);
@@ -17,11 +17,11 @@ namespace mantle {
         std::promise<void> init_promise;
         std::future<void> init_future = init_promise.get_future();
 
-        thread_ = std::thread([init_promise = std::move(init_promise), thread_cpu_affinity, this]() mutable {
+        thread_ = std::thread([init_promise = std::move(init_promise), thread_cpu_affinities, this]() mutable {
             try {
                 debug("[domain] initializing thread");
-                if (thread_cpu_affinity) {
-                    set_cpu_affinity(*thread_cpu_affinity);
+                if (thread_cpu_affinities) {
+                    set_cpu_affinity(*thread_cpu_affinities);
                 }
 
                 init_promise.set_value();

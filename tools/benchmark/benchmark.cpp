@@ -6,7 +6,7 @@
 
 using namespace mantle;
 
-struct TrivialFinalizer final : ObjectFinalizer {
+struct TrivialFinalizer final : Finalizer {
     void finalize(ObjectGroup, std::span<Object*>) noexcept override {}
 };
 
