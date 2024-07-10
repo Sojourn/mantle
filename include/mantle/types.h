@@ -25,8 +25,8 @@ namespace mantle {
     struct ObjectGroups {
         Object**         objects;
         size_t           object_count;
-        ObjectGroup      group_min;     // Inclusive.
-        ObjectGroup      group_max;     // Inclusive.
+        ObjectGroup      group_min;     // Inclusive. TODO: rename to `min_group`.
+        ObjectGroup      group_max;     // Inclusive. TODO: rename to `max_group`.
         size_t*          group_offsets; // Offsets into the objects array (where to find members).
         ObjectGroupMask* group_mask;    // A bitset of non-empty groups.
 
