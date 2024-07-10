@@ -18,6 +18,13 @@
 #include "mantle/operation.h"
 #include "mantle/operation_grouper.h"
 
+// Actions represents what is needed for the controller to advance.
+//
+// SEND:        Waiting to send a message to the associated `Region`.
+// RECEIVE:     Waiting to receive a message from the associated `Region`.
+// BARRIER_ANY: Any controller reaching this state causes all controllers to advance past it.
+// BARRIER_ALL: All controllers must reach this state to advance past it.
+//
 #define MANTLE_REGION_CONTROLLER_ACTIONS(X) \
     X(SEND)                                 \
     X(RECEIVE)                              \
@@ -157,6 +164,12 @@ namespace mantle {
         }
     };
 
+    // The `Domain` creates one of these for each bound `Region`.
+    // It is responsible for driving the synchronization mechanism
+    // between the associated `Region` and peer `RegionController`'s.
+    // Controllers can be in different states, and synchronize among
+    // themselves at barrier states as needed.
+    //
     class RegionController {
     public:
         using State   = RegionControllerState;
