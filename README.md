@@ -31,3 +31,6 @@ copy(mantle::Ref<mantle::Object>&, mantle::Ref<mantle::Object> const&):
 
 ## Safety Disclaimer
 The core algorithm hasn't been checked in `TLA+`, yet.
+
+## TODO
+* Add a Ptr class that is nullable (smaller than `std::optional<Ref<T>>`) and can be assigned without branches.
