@@ -9,7 +9,7 @@ This library implements reference counted smart pointers in a way that attempts 
 ## Codegen
 ```
 void copy(Ref<Object>& dst, const Ref<Object>& src) {
-    dst = src; // Decrements dst and increments src.
+    dst = src; // Decrements dst and increments src, which may reference the same object.
 }
 ```
 
