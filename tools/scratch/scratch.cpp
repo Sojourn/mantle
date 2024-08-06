@@ -88,14 +88,21 @@ public:
 using Number = MyObject<MyObjectType::NUMBER>;
 using String = MyObject<MyObjectType::STRING>;
 
-template<typename... Args>
-Ref<Number> new_number(Args&&... args) {
-    return bind_new<Number>(std::forward<Args>(args)...);
+template<MyObjectType type, typename... Args>
+inline Ref<MyObject<type>> new_object(Args&&... args) {
+    return bind(
+        new MyObject<type>(std::forward<Args>(args)...)
+    );
 }
 
 template<typename... Args>
-Ref<String> new_string(Args&&... args) {
-    return bind_new<String>(std::forward<Args>(args)...);
+inline Ref<Number> new_number(Args&&... args) {
+    return new_object<MyObjectType::NUMBER>(std::forward<Args>(args)...);
+}
+
+template<typename... Args>
+inline Ref<String> new_string(Args&&... args) {
+    return new_object<MyObjectType::STRING>(std::forward<Args>(args)...);
 }
 
 int main(int argc, char** argv) {

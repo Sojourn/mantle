@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdexcept>
 #include <type_traits>
 #include "mantle/object.h"
 #include "mantle/ledger.h"
@@ -7,6 +8,9 @@
 
 namespace mantle {
 
+    // A reference to an object that allows access and will keep it alive while at least
+    // one reference exists to the object. References cannot be null (like normal C++ references).
+    //
     template<typename T>
     class Ref {
         static_assert(std::is_base_of_v<Object, T>, "Object is a required base class");
@@ -98,18 +102,28 @@ namespace mantle {
         return Ref<T>(object);
     }
 
-    template<typename T, typename... Args>
-    inline Ref<T> bind_new(Args&&... args) {
-        return bind<T>(*(new T(std::forward<Args>(args)...)));
+    template<typename T>
+    inline Ref<T> bind(T* object) {
+        if (!object) {
+            throw std::runtime_error("Cannot bind a null object pointer");
+        }
+
+        return bind(*object);
     }
 
 }
 
 namespace std {
 
-    // TODO: Use a null pointer to represent std::nullopt.
+    // TODO: Specialize std::optional to reduce the size to `sizeof(Object*)`.
     // template<typename T>
     // class optional<Ref<T>> {
+    // public:
+    // };
+
+    // TODO: Specialize std::atomic to make it `is_lock_free`.
+    // template<typename T>
+    // class atomic<Ref<T>> {
     // public:
     // };
 
