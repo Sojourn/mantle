@@ -113,6 +113,14 @@ namespace mantle {
 
     MANTLE_SOURCE_INLINE
     void Region::step(const bool non_blocking) {
+        if (depth_) {
+            // Guard against the finalizer calling `Region::step`.
+            assert(false);
+            return;
+        }
+
+        ScopedIncrement lock(depth_);
+
         // Start a new cycle if needed. We need to be in the initial phase, and have a reason to do it.
         bool start_cycle = true;
         start_cycle &= phase_ == INITIAL_PHASE;
@@ -158,7 +166,7 @@ namespace mantle {
             case MessageType::ENTER: {
                 assert((phase_ == Phase::RECV_ENTER) || (phase_ == Phase::RECV_ENTER_SENT_START));
 
-                WriteBarrier& write_barrier = ledger_.commit();
+                ledger_.commit();
                 {
                     // Check if the region is ready to stop.
                     bool stop = true;
@@ -170,7 +178,7 @@ namespace mantle {
                             .submit = {
                                 .type          = MessageType::SUBMIT,
                                 .stop          = stop,
-                                .write_barrier = &write_barrier,
+                                .write_barrier = &ledger_.barrier(WriteBarrierPhase::APPLY),
                             },
                         }
                     );
@@ -237,57 +245,25 @@ namespace mantle {
 
     MANTLE_SOURCE_INLINE
     void Region::finalize_garbage() {
-        if (depth_) {
-            // `Region::step` and `Finalizer::finalize` are co-recursive.
-            // Short circuiting object finalization in nested `Region::step` calls
-            // prevents unbounded stack usage.
-            assert(depth_ == 1);
+        if (!garbage_) {
+            return;
+        }
 
-            if (garbage_) {
-                // Add garbage to the pile until we can safely deal with it.
-                garbage_->for_each_group([this](ObjectGroup, std::span<Object*> members) {
-                    garbage_pile_.insert(
-                        garbage_pile_.end(),
-                        members.begin(),
-                        members.end()
-                    );
-                });
+        if constexpr (MANTLE_ENABLE_OBJECT_GROUPING) {
+            assert(garbage_->object_count == garbage_->group_offsets[garbage_->group_max + 1]);
 
-                garbage_.reset();
-            }
+            garbage_->for_each_group([this](ObjectGroup group, std::span<Object*> members) {
+                finalizer_.finalize(group, members);
+            });
         }
         else {
-            ScopedIncrement lock(depth_);
-
-            if (garbage_) {
-                if constexpr (MANTLE_ENABLE_OBJECT_GROUPING) {
-                    assert(garbage_->object_count == garbage_->group_offsets[garbage_->group_max + 1]);
-
-                    garbage_->for_each_group([this](ObjectGroup group, std::span<Object*> members) {
-                        finalizer_.finalize(group, members);
-                    });
-                }
-                else {
-                    for (size_t i = 0; i < garbage_->object_count; ++i) {
-                        Object* object = garbage_->objects[i];
-                        finalizer_.finalize(object->group(), std::span{&object, 1});
-                    }
-                }
-
-                garbage_.reset();
-            }
-
-            if (UNLIKELY(!garbage_pile_.empty())) {
-                // This collection can be modified while we are iterating over it.
-                // Use index-based iteration to avoid invalidation issues.
-                for (size_t i = 0; i < garbage_pile_.size(); ++i) {
-                    Object* object = garbage_pile_[i];
-                    finalizer_.finalize(object->group(), std::span{&object, 1});
-                }
-
-                garbage_pile_.clear();
+            for (size_t i = 0; i < garbage_->object_count; ++i) {
+                Object* object = garbage_->objects[i];
+                finalizer_.finalize(object->group(), std::span{&object, 1});
             }
         }
+
+        garbage_.reset();
     }
 
     MANTLE_SOURCE_INLINE

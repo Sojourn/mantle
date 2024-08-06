@@ -37,7 +37,6 @@ namespace mantle {
     ;
 
     // This is a simple RAII wrapper around a private anonymous memory mapping.
-    // It is used as backing storage for write barrier segments to ensure page alignment.
     class PrivateMemoryMapping {
     public:
         explicit PrivateMemoryMapping(size_t size, bool populate = true);
@@ -181,11 +180,9 @@ namespace mantle {
 
         // Find the barrier in the corresponding phase.
         WriteBarrier& barrier(WriteBarrierPhase phase);
-        WriteBarrier& increment_barrier();
-        WriteBarrier& decrement_barrier();
 
-        // Advances barrier phases and returns a barrier that can be applied.
-        WriteBarrier& commit();
+        // Advance all write barriers to the next phase.
+        void commit();
 
     private:
         AtomicSequence       sequence_;

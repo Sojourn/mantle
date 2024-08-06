@@ -18,8 +18,11 @@ namespace mantle {
 
         memory_ = std::span(static_cast<std::byte*>(address), size);
 
+        // Populate the mapping by pre-faulting every backing page by writing a zero to it.
+        //
+        // FIXME: Do this better, with a side effect. Compilers will probably optimize this out as is.
+        //
         if (populate) {
-            // Touch the first byte of each page to pre-fault the memory.
             for (size_t i = 0; i < memory_.size_bytes(); i += PAGE_SIZE) {
                 const_cast<volatile std::byte&>(memory_[i]) = std::byte{0};
             }
@@ -379,28 +382,28 @@ namespace mantle {
     }
 
     MANTLE_SOURCE_INLINE
-    WriteBarrier& Ledger::increment_barrier() {
-        return barrier(WriteBarrierPhase::STORE_INCREMENTS);
-    }
+    void Ledger::commit() {
+        // Commit inc/dec writes.
+        {
+            WriteBarrier& increment_barrier = barrier(WriteBarrierPhase::STORE_INCREMENTS);
+            WriteBarrier& decrement_barrier = barrier(WriteBarrierPhase::STORE_DECREMENTS);
 
-    MANTLE_SOURCE_INLINE
-    WriteBarrier& Ledger::decrement_barrier() {
-        return barrier(WriteBarrierPhase::STORE_DECREMENTS);
-    }
-
-    MANTLE_SOURCE_INLINE
-    WriteBarrier& Ledger::commit() {
-        increment_barrier().commit();
-        decrement_barrier().commit();
+            increment_barrier.commit();
+            decrement_barrier.commit();
+        }
 
         // Atomically advance all write barriers to the next phase.
         // Their phase is determined by the current sequence number.
         sequence_.fetch_add(1, std::memory_order_acq_rel);
 
-        increment_cursor_.store(increment_barrier().back()->cursor(), std::memory_order_release);
-        decrement_cursor_.store(decrement_barrier().back()->cursor(), std::memory_order_release);
+        // Setup the new inc/dec barriers to receive subsequent writes.
+        {
+            WriteBarrier& increment_barrier = barrier(WriteBarrierPhase::STORE_INCREMENTS);
+            WriteBarrier& decrement_barrier = barrier(WriteBarrierPhase::STORE_DECREMENTS);
 
-        return barrier(WriteBarrierPhase::APPLY);
+            increment_cursor_.store(increment_barrier.back()->cursor(), std::memory_order_release);
+            decrement_cursor_.store(decrement_barrier.back()->cursor(), std::memory_order_release);
+        }
     }
 
 }

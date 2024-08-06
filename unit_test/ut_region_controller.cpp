@@ -91,13 +91,15 @@ TEST_CASE("RegionController") {
         CHECK(census.all(Action::RECEIVE));
         CHECK(census.all(Phase::SUBMIT));
 
-        deliver_submit_message(controllers, 0, ledger.commit());
+        ledger.commit();
+        deliver_submit_message(controllers, 0, ledger.barrier(WriteBarrierPhase::APPLY));
         census = synchronize(controllers);
         CHECK(census.any(Phase::SUBMIT));
         CHECK(census.any(Phase::SUBMIT_BARRIER));
 
         for (RegionId region_id = 0; region_id < controllers.size(); ++region_id) {
-            deliver_submit_message(controllers, region_id, ledger.commit());
+            ledger.commit();
+            deliver_submit_message(controllers, region_id, ledger.barrier(WriteBarrierPhase::APPLY));
         }
         census = RegionControllerCensus(controllers);
         CHECK(census.all(Phase::SUBMIT_BARRIER));

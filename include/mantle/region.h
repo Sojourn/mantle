@@ -99,13 +99,10 @@ namespace mantle {
         Cycle                       cycle_;
         size_t                      depth_;
 
+        Connection                  connection_;
         Finalizer&                  finalizer_;
         Ledger                      ledger_;
-
         std::optional<ObjectGroups> garbage_;
-        std::vector<Object*>        garbage_pile_;
-
-        Connection                  connection_;
 
     public:
         static Region*& thread_local_instance() {

@@ -37,24 +37,24 @@ TEST_CASE("Ledger") {
 
             decrement_ref_cnt(object);
             CHECK(!ledger.is_empty());
-            CHECK(ledger.increment_barrier().is_empty());
-            CHECK(!ledger.decrement_barrier().is_empty());
+            CHECK(ledger.barrier(WriteBarrierPhase::STORE_INCREMENTS).is_empty());
+            CHECK(!ledger.barrier(WriteBarrierPhase::STORE_DECREMENTS).is_empty());
 
             ledger.commit();
             CHECK(!ledger.is_empty());
-            CHECK(ledger.increment_barrier().is_empty());
-            CHECK(ledger.decrement_barrier().is_empty());
+            CHECK(ledger.barrier(WriteBarrierPhase::STORE_INCREMENTS).is_empty());
+            CHECK(ledger.barrier(WriteBarrierPhase::STORE_DECREMENTS).is_empty());
 
             increment_ref_cnt(object);
             CHECK(!ledger.is_empty());
-            CHECK(!ledger.increment_barrier().is_empty());
-            CHECK(ledger.decrement_barrier().is_empty());
+            CHECK(!ledger.barrier(WriteBarrierPhase::STORE_INCREMENTS).is_empty());
+            CHECK(ledger.barrier(WriteBarrierPhase::STORE_DECREMENTS).is_empty());
 
             // The first decrement barrier becomes the new increment barrier.
             ledger.commit();
             CHECK(!ledger.is_empty());
-            CHECK(!ledger.increment_barrier().is_empty());
-            CHECK(ledger.decrement_barrier().is_empty());
+            CHECK(!ledger.barrier(WriteBarrierPhase::STORE_INCREMENTS).is_empty());
+            CHECK(ledger.barrier(WriteBarrierPhase::STORE_DECREMENTS).is_empty());
         }
 
         SECTION("Partially full write barriers") {
@@ -63,8 +63,8 @@ TEST_CASE("Ledger") {
             decrement_ref_cnt(object);
             decrement_ref_cnt(object);
 
-            WriteBarrier& inc_barrier = ledger.increment_barrier();
-            WriteBarrier& dec_barrier = ledger.decrement_barrier();
+            WriteBarrier& inc_barrier = ledger.barrier(WriteBarrierPhase::STORE_INCREMENTS);
+            WriteBarrier& dec_barrier = ledger.barrier(WriteBarrierPhase::STORE_DECREMENTS);
 
             ledger.commit();
 
