@@ -415,7 +415,9 @@ namespace mantle {
     MANTLE_SOURCE_INLINE
     size_t RegionController::route_operations(const OperationType type, std::span<Object*> objects) {
         for (Object* object : objects) {
-            const Operation operation = make_operation(object, type);
+            if (!object) {
+                continue; // Filter out operations on null pointers.
+            }
 
             const RegionId region_id = object->region_id();
             if (UNLIKELY(region_id >= controllers_.size())) {
@@ -423,7 +425,7 @@ namespace mantle {
             }
 
             RegionController& controller = *controllers_[region_id];
-            controller.operation_grouper_.write(operation, false);
+            controller.operation_grouper_.write(make_operation(object, type), false);
         }
 
         return objects.size();

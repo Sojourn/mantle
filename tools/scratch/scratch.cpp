@@ -91,7 +91,7 @@ using String = MyObject<MyObjectType::STRING>;
 template<MyObjectType type, typename... Args>
 inline Ref<MyObject<type>> new_object(Args&&... args) {
     return bind(
-        new MyObject<type>(std::forward<Args>(args)...)
+        *(new MyObject<type>(std::forward<Args>(args)...))
     );
 }
 

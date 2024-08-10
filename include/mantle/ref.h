@@ -8,12 +8,21 @@
 
 namespace mantle {
 
+    template<typename T>
+    class Ref;
+
+    template<typename T>
+    class Ptr;
+
     // A reference to an object that allows access and will keep it alive while at least
     // one reference exists to the object. References cannot be null (like normal C++ references).
     //
     template<typename T>
     class Ref {
         static_assert(std::is_base_of_v<Object, T>, "Object is a required base class");
+
+        template<typename U>
+        friend class Ref;
 
         friend Ref<T> bind<T>(T& object) noexcept;
 
@@ -23,7 +32,7 @@ namespace mantle {
             Region* region = Region::thread_local_instance();
             assert(region);
 
-            static_cast<Object&>(object).bind(region->id());
+            static_cast<Object*>(object_)->bind(region->id());
         }
 
     public:
@@ -32,7 +41,7 @@ namespace mantle {
         Ref(const Ref& other) noexcept
             : object_(other.object_)
         {
-            increment_ref_cnt(*object_);
+            increment_ref_cnt(object_);
         }
 
         template<typename U>
@@ -41,15 +50,15 @@ namespace mantle {
         {
             static_assert(std::is_base_of_v<T, U>); // TODO: lift this into a concept.
 
-            increment_ref_cnt(*object_);
+            increment_ref_cnt(object_);
         }
 
         Ref& operator=(const Ref& that) noexcept {
             // We don't need to check if `this != that`.
             // The increment will be reordered before the decrement.
-            decrement_ref_cnt(*object_);
+            decrement_ref_cnt(object_);
             object_ = that.object_;
-            increment_ref_cnt(*object_);
+            increment_ref_cnt(object_);
 
             return *this;
         }
@@ -58,15 +67,70 @@ namespace mantle {
         Ref& operator=(const Ref<U>& that) noexcept {
             static_assert(std::is_base_of_v<T, U>);
 
-            decrement_ref_cnt(*object_);
+            decrement_ref_cnt(object_);
             object_ = that.object_;
-            increment_ref_cnt(*object_);
+            increment_ref_cnt(object_);
 
             return *this;
         }
 
         ~Ref() noexcept {
-            decrement_ref_cnt(*object_);
+            decrement_ref_cnt(object_);
+        }
+
+        T* get() noexcept {
+            return object_;
+        }
+
+        const T* get() const noexcept {
+            return object_;
+        }
+
+        T& operator*() noexcept {
+            return *object_;
+        }
+
+        const T& operator*() const noexcept {
+            return *object_;
+        }
+
+        T* operator->() noexcept {
+            return object_;
+        }
+
+        const T* operator->() const noexcept {
+            return object_;
+        }
+
+    private:
+        T* object_;
+    };
+
+    template<typename T>
+    class Ptr {
+        static_assert(std::is_base_of_v<Object, T>, "Object is a required base class");
+
+        friend Ptr<T> bind<T>(T* object) noexcept;
+
+        Ptr(T* object)
+            : object_(object)
+        {
+            if (object_) {
+                Region* region = Region::thread_local_instance();
+                assert(region);
+
+                static_cast<Object*>(object_)->bind(region->id());
+            }
+        }
+
+    public:
+        Ptr()
+            : object_(nullptr)
+        {
+        }
+
+        ~Ptr() {
+            decrement_ref_cnt(object_);
         }
 
         T* get() noexcept {
@@ -103,12 +167,8 @@ namespace mantle {
     }
 
     template<typename T>
-    inline Ref<T> bind(T* object) {
-        if (!object) {
-            throw std::runtime_error("Cannot bind a null object pointer");
-        }
-
-        return bind(*object);
+    inline Ptr<T> bind(T* object) noexcept {
+        return Ptr<T>(object);
     }
 
 }

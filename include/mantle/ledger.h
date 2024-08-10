@@ -193,23 +193,23 @@ namespace mantle {
     };
 
     MANTLE_HOT
-    void increment_ref_cnt(Object& object) {
+    void increment_ref_cnt(Object* object) {
         std::atomic<Object**>& cursor = Ledger::local_increment_cursor();
         Object** record = cursor.load(std::memory_order_acquire); // Doesn't need to be a fetch-add.
         assert(record);
 
         cursor.store(record + 1, std::memory_order_release);
-        *record = &object;
+        *record = object; // Maybe null.
     }
 
     MANTLE_HOT
-    void decrement_ref_cnt(Object& object) {
+    void decrement_ref_cnt(Object* object) {
         std::atomic<Object**>& cursor = Ledger::local_decrement_cursor();
         Object** record = cursor.load(std::memory_order_acquire); // Doesn't need to be a fetch-add.
         assert(record);
 
         cursor.store(record + 1, std::memory_order_release);
-        *record = &object;
+        *record = object; // Maybe null.
     }
 
     using ObjectLedger = Ledger;

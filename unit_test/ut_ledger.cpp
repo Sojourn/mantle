@@ -35,7 +35,7 @@ TEST_CASE("Ledger") {
         SECTION("Emptiness") {
             CHECK(ledger.is_empty());
 
-            decrement_ref_cnt(object);
+            decrement_ref_cnt(&object);
             CHECK(!ledger.is_empty());
             CHECK(ledger.barrier(WriteBarrierPhase::STORE_INCREMENTS).is_empty());
             CHECK(!ledger.barrier(WriteBarrierPhase::STORE_DECREMENTS).is_empty());
@@ -45,7 +45,7 @@ TEST_CASE("Ledger") {
             CHECK(ledger.barrier(WriteBarrierPhase::STORE_INCREMENTS).is_empty());
             CHECK(ledger.barrier(WriteBarrierPhase::STORE_DECREMENTS).is_empty());
 
-            increment_ref_cnt(object);
+            increment_ref_cnt(&object);
             CHECK(!ledger.is_empty());
             CHECK(!ledger.barrier(WriteBarrierPhase::STORE_INCREMENTS).is_empty());
             CHECK(ledger.barrier(WriteBarrierPhase::STORE_DECREMENTS).is_empty());
@@ -58,10 +58,10 @@ TEST_CASE("Ledger") {
         }
 
         SECTION("Partially full write barriers") {
-            increment_ref_cnt(object);
-            increment_ref_cnt(object);
-            decrement_ref_cnt(object);
-            decrement_ref_cnt(object);
+            increment_ref_cnt(&object);
+            increment_ref_cnt(&object);
+            decrement_ref_cnt(&object);
+            decrement_ref_cnt(&object);
 
             WriteBarrier& inc_barrier = ledger.barrier(WriteBarrierPhase::STORE_INCREMENTS);
             WriteBarrier& dec_barrier = ledger.barrier(WriteBarrierPhase::STORE_DECREMENTS);

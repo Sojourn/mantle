@@ -3,6 +3,8 @@
 
 using namespace mantle;
 
+struct ObjectImpl : Object {};
+
 class BasicObjectFinalizer final : public Finalizer {
 public:
     size_t count = 0;
@@ -21,6 +23,10 @@ TEST_CASE("Ref") {
 
     auto make_object_ref = []() {
         return bind(*(new Object));
+    };
+
+    auto make_object_impl_ref = []() {
+        return bind(*(new ObjectImpl));
     };
 
     SECTION("Simple") {
@@ -89,5 +95,19 @@ TEST_CASE("Ref") {
             CHECK(finalizer.count == 0);
         }
         CHECK(finalizer.count == count);
+    }
+
+    SECTION("Conversions") {
+        {
+            Domain domain;
+            Region region(domain, finalizer);
+
+            {
+                Ref<ObjectImpl> impl = make_object_impl_ref();
+                Ref<Object> base = impl;
+            }
+            CHECK(finalizer.count == 0);
+        }
+        CHECK(finalizer.count == 1);
     }
 }
