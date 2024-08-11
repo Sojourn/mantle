@@ -103,11 +103,35 @@ TEST_CASE("Ref") {
             Region region(domain, finalizer);
 
             {
-                Ref<ObjectImpl> impl = make_object_impl_ref();
-                Ref<Object> base = impl;
+                Ref<ObjectImpl> impl_ref = make_object_impl_ref();
+                Ref<Object> base_ref = impl_ref;
+
+                Ptr<ObjectImpl> impl_ptr = impl_ref;
+                Ptr<Object> base_ptr = impl_ptr;
+
+                base_ptr = impl_ref;
+                base_ptr = base_ref;
+
+                impl_ref = impl_ptr;
+                base_ref = base_ptr;
             }
             CHECK(finalizer.count == 0);
         }
         CHECK(finalizer.count == 1);
     }
+
+    SECTION("Null pointers") {
+        {
+            Domain domain;
+            Region region(domain, finalizer);
+
+            {
+                Ptr<ObjectImpl> ptr = make_object_impl_ref();
+                Ptr<ObjectImpl> null_ptr;
+            }
+            CHECK(finalizer.count == 0);
+        }
+        CHECK(finalizer.count == 1);
+    }
+
 }
