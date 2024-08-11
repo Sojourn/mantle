@@ -88,8 +88,8 @@ namespace mantle {
     struct ObjectGroups {
         Object**         objects;
         size_t           object_count;
-        ObjectGroup      group_min;     // Inclusive.
-        ObjectGroup      group_max;     // Inclusive.
+        ObjectGroup      group_min;     // Inclusive. TODO: rename to `min_group`.
+        ObjectGroup      group_max;     // Inclusive. TODO: rename to `max_group`.
         size_t*          group_offsets; // Offsets into the objects array (where to find members).
         ObjectGroupMask* group_mask;    // A bitset of non-empty groups.
 
@@ -108,9 +108,12 @@ namespace mantle {
                 abort();
             }
 
+            const size_t offset = group_offsets[static_cast<size_t>(group)];
+            const size_t length = group_member_count(group);
+
             return {
-                &objects[group],
-                group_member_count(group)
+                &objects[offset],
+                length
             };
         }
 
@@ -550,7 +553,6 @@ namespace mantle {
     ;
 
     // This is a simple RAII wrapper around a private anonymous memory mapping.
-    // It is used as backing storage for write barrier segments to ensure page alignment.
     class PrivateMemoryMapping {
     public:
         explicit PrivateMemoryMapping(size_t size, bool populate = true);
@@ -694,11 +696,9 @@ namespace mantle {
 
         // Find the barrier in the corresponding phase.
         WriteBarrier& barrier(WriteBarrierPhase phase);
-        WriteBarrier& increment_barrier();
-        WriteBarrier& decrement_barrier();
 
-        // Advances barrier phases and returns a barrier that can be applied.
-        WriteBarrier& commit();
+        // Advance all write barriers to the next phase.
+        void commit();
 
     private:
         AtomicSequence       sequence_;
@@ -709,23 +709,23 @@ namespace mantle {
     };
 
     MANTLE_HOT
-    void increment_ref_cnt(Object& object) {
+    void increment_ref_cnt(Object* object) {
         std::atomic<Object**>& cursor = Ledger::local_increment_cursor();
         Object** record = cursor.load(std::memory_order_acquire); // Doesn't need to be a fetch-add.
         assert(record);
 
         cursor.store(record + 1, std::memory_order_release);
-        *record = &object;
+        *record = object; // Maybe null.
     }
 
     MANTLE_HOT
-    void decrement_ref_cnt(Object& object) {
+    void decrement_ref_cnt(Object* object) {
         std::atomic<Object**>& cursor = Ledger::local_decrement_cursor();
         Object** record = cursor.load(std::memory_order_acquire); // Doesn't need to be a fetch-add.
         assert(record);
 
         cursor.store(record + 1, std::memory_order_release);
-        *record = &object;
+        *record = object; // Maybe null.
     }
 
     using ObjectLedger = Ledger;
@@ -1445,6 +1445,13 @@ namespace mantle {
 // include/mantle/region_controller.h
 
 
+// Actions represents what is needed for the controller to advance.
+//
+// SEND:        Waiting to send a message to the associated `Region`.
+// RECEIVE:     Waiting to receive a message from the associated `Region`.
+// BARRIER_ANY: Any controller reaching this state causes all controllers to advance past it.
+// BARRIER_ALL: All controllers must reach this state to advance past it.
+//
 #define MANTLE_REGION_CONTROLLER_ACTIONS(X) \
     X(SEND)                                 \
     X(RECEIVE)                              \
@@ -1584,6 +1591,12 @@ namespace mantle {
         }
     };
 
+    // The `Domain` creates one of these for each bound `Region`.
+    // It is responsible for driving the synchronization mechanism
+    // between the associated `Region` and peer `RegionController`'s.
+    // Controllers can be in different states, and synchronize among
+    // themselves at barrier states as needed.
+    //
     class RegionController {
     public:
         using State   = RegionControllerState;
@@ -1743,13 +1756,10 @@ namespace mantle {
         Cycle                       cycle_;
         size_t                      depth_;
 
+        Connection                  connection_;
         Finalizer&                  finalizer_;
         Ledger                      ledger_;
-
         std::optional<ObjectGroups> garbage_;
-        std::vector<Object*>        garbage_pile_;
-
-        Connection                  connection_;
 
     public:
         static Region*& thread_local_instance() {
@@ -1820,8 +1830,29 @@ namespace mantle {
 namespace mantle {
 
     template<typename T>
+    class Ref;
+
+    template<typename T>
+    class Ptr;
+
+    template<typename T>
+    Ref<T> bind(T& object) noexcept;
+
+    template<typename T>
+    Ptr<T> bind(T* object) noexcept;
+
+    // A reference to an object that allows access and will keep it alive while at least
+    // one reference exists to the object. References cannot be null (like normal C++ references).
+    //
+    template<typename T>
     class Ref {
         static_assert(std::is_base_of_v<Object, T>, "Object is a required base class");
+
+        template<typename U>
+        friend class Ref;
+
+        template<typename U>
+        friend class Ptr;
 
         friend Ref<T> bind<T>(T& object) noexcept;
 
@@ -1831,7 +1862,7 @@ namespace mantle {
             Region* region = Region::thread_local_instance();
             assert(region);
 
-            static_cast<Object&>(object).bind(region->id());
+            static_cast<Object*>(object_)->bind(region->id());
         }
 
     public:
@@ -1840,7 +1871,7 @@ namespace mantle {
         Ref(const Ref& other) noexcept
             : object_(other.object_)
         {
-            increment_ref_cnt(*object_);
+            increment_ref_cnt(object_);
         }
 
         template<typename U>
@@ -1849,15 +1880,18 @@ namespace mantle {
         {
             static_assert(std::is_base_of_v<T, U>); // TODO: lift this into a concept.
 
-            increment_ref_cnt(*object_);
+            increment_ref_cnt(object_);
         }
+
+        template<typename U>
+        Ref(const Ptr<U>& other);
 
         Ref& operator=(const Ref& that) noexcept {
             // We don't need to check if `this != that`.
             // The increment will be reordered before the decrement.
-            decrement_ref_cnt(*object_);
+            decrement_ref_cnt(object_);
             object_ = that.object_;
-            increment_ref_cnt(*object_);
+            increment_ref_cnt(object_);
 
             return *this;
         }
@@ -1866,15 +1900,18 @@ namespace mantle {
         Ref& operator=(const Ref<U>& that) noexcept {
             static_assert(std::is_base_of_v<T, U>);
 
-            decrement_ref_cnt(*object_);
+            decrement_ref_cnt(object_);
             object_ = that.object_;
-            increment_ref_cnt(*object_);
+            increment_ref_cnt(object_);
 
             return *this;
         }
 
+        template<typename U>
+        Ref& operator=(const Ptr<U>& that);
+
         ~Ref() noexcept {
-            decrement_ref_cnt(*object_);
+            decrement_ref_cnt(object_);
         }
 
         T* get() noexcept {
@@ -1905,18 +1942,186 @@ namespace mantle {
         T* object_;
     };
 
+    // Pointers are nullable references. They also keep the object, pointed to alive (i.e. not weak).
+    // This is in an improvement over `std::optional<Ref<T>>` in a couple of ways:
+    //   1. `sizeof(Ptr<T>) < sizeof(std::optional<T>)`.
+    //   2. More efficient copying (branchless).
+    //   3. Automatic conversion to references with null checking.
+    //
+    template<typename T>
+    class Ptr {
+        static_assert(std::is_base_of_v<Object, T>, "Object is a required base class");
+
+        template<typename U>
+        friend class Ref;
+
+        template<typename U>
+        friend class Ptr;
+
+        friend Ptr<T> bind<T>(T* object) noexcept;
+
+        Ptr(T* object)
+            : object_(object)
+        {
+            if (object_) {
+                Region* region = Region::thread_local_instance();
+                assert(region);
+
+                static_cast<Object*>(object_)->bind(region->id());
+            }
+        }
+
+    public:
+        Ptr() noexcept
+            : object_(nullptr)
+        {
+        }
+
+        Ptr(const Ptr& other) noexcept
+            : object_(other.object_)
+        {
+            increment_ref_cnt(object_);
+        }
+
+        template<typename U>
+        Ptr(const Ptr<U>& other) noexcept
+            : object_(other.object_)
+        {
+            static_assert(std::is_base_of_v<T, U>); // TODO: lift this into a concept.
+
+            increment_ref_cnt(object_);
+        }
+
+        template<typename U>
+        Ptr(const Ref<U>& other) noexcept
+            : object_(other.object_)
+        {
+            static_assert(std::is_base_of_v<T, U>); // TODO: lift this into a concept.
+
+            increment_ref_cnt(object_);
+        }
+
+        Ptr& operator=(const Ptr& that) noexcept {
+            // We don't need to check if `this != that`.
+            // The increment will be reordered before the decrement.
+            decrement_ref_cnt(object_);
+            object_ = that.object_;
+            increment_ref_cnt(object_);
+
+            return *this;
+        }
+
+        template<typename U>
+        Ptr& operator=(const Ptr<U>& that) noexcept {
+            static_assert(std::is_base_of_v<T, U>);
+
+            decrement_ref_cnt(object_);
+            object_ = that.object_;
+            increment_ref_cnt(object_);
+
+            return *this;
+        }
+
+        template<typename U>
+        Ptr& operator=(const Ref<U>& that) noexcept {
+            static_assert(std::is_base_of_v<T, U>);
+
+            decrement_ref_cnt(object_);
+            object_ = that.object_;
+            increment_ref_cnt(object_);
+
+            return *this;
+        }
+
+        ~Ptr() noexcept {
+            decrement_ref_cnt(object_);
+        }
+
+        T* get() noexcept {
+            return object_;
+        }
+
+        const T* get() const noexcept {
+            return object_;
+        }
+
+        T& operator*() noexcept {
+            return *object_;
+        }
+
+        const T& operator*() const noexcept {
+            return *object_;
+        }
+
+        T* operator->() noexcept {
+            return object_;
+        }
+
+        const T* operator->() const noexcept {
+            return object_;
+        }
+
+        explicit operator bool() const {
+            return static_cast<bool>(object_);
+        }
+
+        void reset() {
+            decrement_ref_cnt(std::exchange(object_, nullptr));
+        }
+
+    private:
+        T* object_;
+    };
+
+    template<typename T>
+    template<typename U>
+    Ref<T>::Ref(const Ptr<U>& other)
+        :  object_(other.object_)
+    {
+        static_assert(std::is_base_of_v<T, U>); // TODO: lift this into a concept.
+        if (!object_) {
+            throw std::runtime_error("Null reference");
+        }
+
+        increment_ref_cnt(object_);
+    }
+
+    template<typename T>
+    template<typename U>
+    Ref<T>& Ref<T>::operator=(const Ptr<U>& that) {
+        static_assert(std::is_base_of_v<T, U>);
+        if (!that.object_) {
+            throw std::runtime_error("Null reference");
+        }
+
+        decrement_ref_cnt(object_);
+        object_ = that.object_;
+        increment_ref_cnt(object_);
+
+        return *this;
+    }
+
     template<typename T>
     inline Ref<T> bind(T& object) noexcept {
         return Ref<T>(object);
+    }
+
+    template<typename T>
+    inline Ptr<T> bind(T* object) noexcept {
+        return Ptr<T>(object);
     }
 
 }
 
 namespace std {
 
-    // TODO: Use a null pointer to represent std::nullopt.
+    // TODO: Specialize std::atomic to make it `is_lock_free`.
     // template<typename T>
-    // class optional<Ref<T>> {
+    // class atomic<Ref<T>> {
+    // public:
+    // };
+    // template<typename T>
+    // class atomic<Ptr<T>> {
     // public:
     // };
 
@@ -2128,6 +2333,14 @@ inline
 
 inline
     void Region::step(const bool non_blocking) {
+        if (depth_) {
+            // Guard against the finalizer calling `Region::step`.
+            assert(false);
+            return;
+        }
+
+        ScopedIncrement lock(depth_);
+
         // Start a new cycle if needed. We need to be in the initial phase, and have a reason to do it.
         bool start_cycle = true;
         start_cycle &= phase_ == INITIAL_PHASE;
@@ -2173,7 +2386,7 @@ inline
             case MessageType::ENTER: {
                 assert((phase_ == Phase::RECV_ENTER) || (phase_ == Phase::RECV_ENTER_SENT_START));
 
-                WriteBarrier& write_barrier = ledger_.commit();
+                ledger_.commit();
                 {
                     // Check if the region is ready to stop.
                     bool stop = true;
@@ -2185,7 +2398,7 @@ inline
                             .submit = {
                                 .type          = MessageType::SUBMIT,
                                 .stop          = stop,
-                                .write_barrier = &write_barrier,
+                                .write_barrier = &ledger_.barrier(WriteBarrierPhase::APPLY),
                             },
                         }
                     );
@@ -2252,57 +2465,25 @@ inline
 
 inline
     void Region::finalize_garbage() {
-        if (depth_) {
-            // `Region::step` and `Finalizer::finalize` are co-recursive.
-            // Short circuiting object finalization in nested `Region::step` calls
-            // prevents unbounded stack usage.
-            assert(depth_ == 1);
+        if (!garbage_) {
+            return;
+        }
 
-            if (garbage_) {
-                // Add garbage to the pile until we can safely deal with it.
-                garbage_->for_each_group([this](ObjectGroup, std::span<Object*> members) {
-                    garbage_pile_.insert(
-                        garbage_pile_.end(),
-                        members.begin(),
-                        members.end()
-                    );
-                });
+        if constexpr (MANTLE_ENABLE_OBJECT_GROUPING) {
+            assert(garbage_->object_count == garbage_->group_offsets[garbage_->group_max + 1]);
 
-                garbage_.reset();
-            }
+            garbage_->for_each_group([this](ObjectGroup group, std::span<Object*> members) {
+                finalizer_.finalize(group, members);
+            });
         }
         else {
-            ScopedIncrement lock(depth_);
-
-            if (garbage_) {
-                if constexpr (MANTLE_ENABLE_OBJECT_GROUPING) {
-                    assert(garbage_->object_count == garbage_->group_offsets[garbage_->group_max + 1]);
-
-                    garbage_->for_each_group([this](ObjectGroup group, std::span<Object*> members) {
-                        finalizer_.finalize(group, members);
-                    });
-                }
-                else {
-                    for (size_t i = 0; i < garbage_->object_count; ++i) {
-                        Object* object = garbage_->objects[i];
-                        finalizer_.finalize(object->group(), std::span{&object, 1});
-                    }
-                }
-
-                garbage_.reset();
-            }
-
-            if (UNLIKELY(!garbage_pile_.empty())) {
-                // This collection can be modified while we are iterating over it.
-                // Use index-based iteration to avoid invalidation issues.
-                for (size_t i = 0; i < garbage_pile_.size(); ++i) {
-                    Object* object = garbage_pile_[i];
-                    finalizer_.finalize(object->group(), std::span{&object, 1});
-                }
-
-                garbage_pile_.clear();
+            for (size_t i = 0; i < garbage_->object_count; ++i) {
+                Object* object = garbage_->objects[i];
+                finalizer_.finalize(object->group(), std::span{&object, 1});
             }
         }
+
+        garbage_.reset();
     }
 
 inline
@@ -2649,8 +2830,11 @@ inline
 
         memory_ = std::span(static_cast<std::byte*>(address), size);
 
+        // Populate the mapping by pre-faulting every backing page by writing a zero to it.
+        //
+        // FIXME: Do this better, with a side effect. Compilers will probably optimize this out as is.
+        //
         if (populate) {
-            // Touch the first byte of each page to pre-fault the memory.
             for (size_t i = 0; i < memory_.size_bytes(); i += PAGE_SIZE) {
                 const_cast<volatile std::byte&>(memory_[i]) = std::byte{0};
             }
@@ -3010,28 +3194,28 @@ inline
     }
 
 inline
-    WriteBarrier& Ledger::increment_barrier() {
-        return barrier(WriteBarrierPhase::STORE_INCREMENTS);
-    }
+    void Ledger::commit() {
+        // Commit inc/dec writes.
+        {
+            WriteBarrier& increment_barrier = barrier(WriteBarrierPhase::STORE_INCREMENTS);
+            WriteBarrier& decrement_barrier = barrier(WriteBarrierPhase::STORE_DECREMENTS);
 
-inline
-    WriteBarrier& Ledger::decrement_barrier() {
-        return barrier(WriteBarrierPhase::STORE_DECREMENTS);
-    }
-
-inline
-    WriteBarrier& Ledger::commit() {
-        increment_barrier().commit();
-        decrement_barrier().commit();
+            increment_barrier.commit();
+            decrement_barrier.commit();
+        }
 
         // Atomically advance all write barriers to the next phase.
         // Their phase is determined by the current sequence number.
         sequence_.fetch_add(1, std::memory_order_acq_rel);
 
-        increment_cursor_.store(increment_barrier().back()->cursor(), std::memory_order_release);
-        decrement_cursor_.store(decrement_barrier().back()->cursor(), std::memory_order_release);
+        // Setup the new inc/dec barriers to receive subsequent writes.
+        {
+            WriteBarrier& increment_barrier = barrier(WriteBarrierPhase::STORE_INCREMENTS);
+            WriteBarrier& decrement_barrier = barrier(WriteBarrierPhase::STORE_DECREMENTS);
 
-        return barrier(WriteBarrierPhase::APPLY);
+            increment_cursor_.store(increment_barrier.back()->cursor(), std::memory_order_release);
+            decrement_cursor_.store(decrement_barrier.back()->cursor(), std::memory_order_release);
+        }
     }
 
 }
@@ -3445,7 +3629,9 @@ inline
 inline
     size_t RegionController::route_operations(const OperationType type, std::span<Object*> objects) {
         for (Object* object : objects) {
-            const Operation operation = make_operation(object, type);
+            if (!object) {
+                continue; // Filter out operations on null pointers.
+            }
 
             const RegionId region_id = object->region_id();
             if (UNLIKELY(region_id >= controllers_.size())) {
@@ -3453,7 +3639,7 @@ inline
             }
 
             RegionController& controller = *controllers_[region_id];
-            controller.operation_grouper_.write(operation, false);
+            controller.operation_grouper_.write(make_operation(object, type), false);
         }
 
         return objects.size();
