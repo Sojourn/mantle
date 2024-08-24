@@ -213,7 +213,7 @@ namespace mantle {
         }
 
         ~Ptr() noexcept {
-            decrement_ref_cnt(object_);
+            reset();
         }
 
         T* get() noexcept {
@@ -245,7 +245,7 @@ namespace mantle {
         }
 
         void reset() {
-            decrement_ref_cnt(std::exchange(object_, nullptr));
+            decrement_ref_cnt(release());
         }
 
     private:

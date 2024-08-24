@@ -25,6 +25,7 @@ namespace mantle {
 #undef X
     };
 
+    // TODO: Make this a variant.
     union Message {
         MessageType type;
 
@@ -67,7 +68,7 @@ namespace mantle {
         };
     }
 
-    constexpr Message make_enter_message(Sequence cycle) {
+    constexpr Message make_enter_message(const Sequence cycle) {
         return {
             .enter = {
                 .type  = MessageType::ENTER,
@@ -76,7 +77,7 @@ namespace mantle {
         };
     }
 
-    constexpr Message make_leave_message(bool stop) {
+    constexpr Message make_leave_message(const bool stop) {
         return {
             .leave = {
                 .type = MessageType::LEAVE,
@@ -85,7 +86,7 @@ namespace mantle {
         };
     }
 
-    constexpr std::string_view to_string(MessageType type) {
+    constexpr std::string_view to_string(const MessageType type) {
         using namespace std::literals;
 
         switch (type) {
