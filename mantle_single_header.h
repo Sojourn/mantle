@@ -499,6 +499,9 @@ namespace mantle {
     private:
         template<typename T>
         friend class Ref;
+        template<typename T>
+        friend class Ptr;
+
         friend class RegionController;
 
         // Associate this `Object` to the local `Region`. Reference counting
@@ -922,6 +925,7 @@ namespace mantle {
 #undef X
     };
 
+    // TODO: Make this a variant.
     union Message {
         MessageType type;
 
@@ -964,7 +968,7 @@ namespace mantle {
         };
     }
 
-    constexpr Message make_enter_message(Sequence cycle) {
+    constexpr Message make_enter_message(const Sequence cycle) {
         return {
             .enter = {
                 .type  = MessageType::ENTER,
@@ -973,7 +977,7 @@ namespace mantle {
         };
     }
 
-    constexpr Message make_leave_message(bool stop) {
+    constexpr Message make_leave_message(const bool stop) {
         return {
             .leave = {
                 .type = MessageType::LEAVE,
@@ -982,7 +986,7 @@ namespace mantle {
         };
     }
 
-    constexpr std::string_view to_string(MessageType type) {
+    constexpr std::string_view to_string(const MessageType type) {
         using namespace std::literals;
 
         switch (type) {
@@ -2034,7 +2038,7 @@ namespace mantle {
         }
 
         ~Ptr() noexcept {
-            decrement_ref_cnt(object_);
+            reset();
         }
 
         T* get() noexcept {
@@ -2066,8 +2070,21 @@ namespace mantle {
         }
 
         void reset() {
-            decrement_ref_cnt(std::exchange(object_, nullptr));
+            decrement_ref_cnt(release());
         }
+
+#if 0
+        T* release() {
+            return std::exchange(object_, nullptr);
+        }
+
+        void acquire(T* object) {
+            assert(!object || object->is_managed());
+
+            decrement_ref_cnt(object_);
+            object_ = object;
+        }
+#endif
 
     private:
         T* object_;
