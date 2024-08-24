@@ -248,6 +248,17 @@ namespace mantle {
             decrement_ref_cnt(release());
         }
 
+        T* release() {
+            return std::exchange(object_, nullptr);
+        }
+
+        void acquire(T* object) {
+            assert(!object || object->is_managed());
+
+            decrement_ref_cnt(object_);
+            object_ = object;
+        }
+
     private:
         T* object_;
     };

@@ -2073,7 +2073,6 @@ namespace mantle {
             decrement_ref_cnt(release());
         }
 
-#if 0
         T* release() {
             return std::exchange(object_, nullptr);
         }
@@ -2084,7 +2083,6 @@ namespace mantle {
             decrement_ref_cnt(object_);
             object_ = object;
         }
-#endif
 
     private:
         T* object_;
