@@ -28,3 +28,6 @@ copy(mantle::Ref<mantle::Object>&, mantle::Ref<mantle::Object> const&):
         mov     QWORD PTR [rax], rdx
         ret
 ```
+
+## TODO
+* Updating reference counts can be parallelized. Worker Threads can do a radix sort on per-region submissions to make it embarrassingly parallel.
