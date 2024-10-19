@@ -22,9 +22,15 @@ namespace mantle {
         ObjectGrouper()
             : group_min_(std::numeric_limits<ObjectGroup>::max())
             , group_max_(std::numeric_limits<ObjectGroup>::min())
+            , group_buckets_(std::numeric_limits<ObjectGroup>::max() + 0)
+            , group_offsets_(std::numeric_limits<ObjectGroup>::max() + 1)
+            , group_mask_()
         {
             for (size_t& bucket: group_buckets_) {
                 bucket = 0;
+            }
+            for (size_t& offset: group_buckets_) {
+                offset = 0;
             }
         }
 
@@ -137,16 +143,13 @@ namespace mantle {
         }
 
     private:
-        using GroupBucketArray = std::array<size_t, std::numeric_limits<ObjectGroup>::max() + 0>;
-        using GroupOffsetArray = std::array<size_t, std::numeric_limits<ObjectGroup>::max() + 1>;
-
         std::vector<Object*> input_;
         ObjectGroup          group_min_;
         ObjectGroup          group_max_;
-        GroupBucketArray     group_buckets_;
+        std::vector<size_t>  group_buckets_;
 
         std::vector<Object*> output_;
-        GroupOffsetArray     group_offsets_;
+        std::vector<size_t>  group_offsets_;
         ObjectGroupMask      group_mask_;
 
         Metrics              metrics_;
