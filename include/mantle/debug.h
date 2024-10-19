@@ -8,9 +8,13 @@
 #include "mantle/domain.h"
 #include "mantle/region_controller.h"
 
-#define MANTLE_INFO  0
 #define MANTLE_DEBUG 0
+#define MANTLE_INFO  0
 #define MANTLE_AUDIT 0
+
+#if MANTLE_DEBUG || MANTLE_INFO
+#  include <fmt/format.h>
+#endif
 
 namespace mantle {
 
