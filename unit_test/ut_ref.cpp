@@ -1,25 +1,13 @@
 #include "catch.hpp"
 #include "mantle/mantle.h"
+#include "ut_common.h"
 
 using namespace mantle;
 
 struct ObjectImpl : Object {};
 
-class BasicObjectFinalizer final : public Finalizer {
-public:
-    size_t count = 0;
-
-    void finalize(ObjectGroup, std::span<Object*> objects) noexcept override {
-        count += objects.size();
-
-        for (Object* object : objects) {
-            delete object;
-        }
-    }
-};
-
 TEST_CASE("Ref") {
-    BasicObjectFinalizer finalizer;
+    CommonObjectFinalizer finalizer;
 
     auto make_object_ref = []() {
         return bind(*(new Object));

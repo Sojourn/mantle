@@ -115,7 +115,7 @@ namespace mantle {
         // Check if there are controllers that need to be started or stopped.
         // This is safe to do while there isn't an active cycle.
         if (controllers_.empty() || census.any(RegionControllerPhase::START)) {
-            std::scoped_lock lock(regions_mutex_);
+            std::scoped_lock lock(mutex_);
 
             if (controllers_.size() < regions_.size()) {
                 start_controllers(census, lock);
@@ -176,7 +176,7 @@ namespace mantle {
 
     MANTLE_SOURCE_INLINE
     RegionId Domain::bind(Region& region) {
-        std::scoped_lock lock(regions_mutex_);
+        std::scoped_lock lock(mutex_);
 
         const RegionId region_id = regions_.size();
         regions_.push_back(&region);

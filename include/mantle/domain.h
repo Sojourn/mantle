@@ -45,8 +45,9 @@ namespace mantle {
     private:
         std::thread            thread_;
 
-        std::mutex             regions_mutex_;
+        std::mutex             mutex_;
         std::vector<Region*>   regions_;
+
         RegionControllerGroup  controllers_;
 
         WriteBarrierManager    write_barrier_manager_;

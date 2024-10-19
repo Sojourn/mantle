@@ -2,6 +2,7 @@ add_executable(unit_test
         catch.hpp
         unit_test.cpp
         ut_scratch.cpp
+        ut_startup.cpp
         ut_ref.cpp
         ut_ledger.cpp
         ut_object_grouper.cpp
