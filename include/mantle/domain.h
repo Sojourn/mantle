@@ -16,6 +16,12 @@ namespace mantle {
 
     class Region;
 
+    enum class DomainState {
+        RUNNING,
+        STOPPING,
+        STOPPED,
+    };
+
     class Domain {
         friend class Region;
 
@@ -31,6 +37,8 @@ namespace mantle {
         [[nodiscard]]
         WriteBarrierManager& write_barrier_manager();
 
+        void stop();
+
     private:
         void run();
 
@@ -44,15 +52,15 @@ namespace mantle {
 
     private:
         std::thread            thread_;
+        pid_t                  parent_thread_id_;
+        WriteBarrierManager    write_barrier_manager_;
 
         std::mutex             mutex_;
+        DomainState            state_;
         std::vector<Region*>   regions_;
 
         RegionControllerGroup  controllers_;
-
-        WriteBarrierManager    write_barrier_manager_;
-
-        bool                   running_;
+        std::vector<Endpoint*> endpoints_;
         Doorbell               doorbell_;
         Selector               selector_;
     };

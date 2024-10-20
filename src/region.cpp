@@ -102,6 +102,10 @@ namespace mantle {
             return;
         }
 
+        if (domain_.parent_thread_id_ == get_tid()) {
+            domain_.stop(); // Prevent a region and domain on the same thread from live-locking.
+        }
+
         // Flag that we want to stop and participate until the domain
         // indicates that it is safe to do so.
         state_ = State::STOPPING;

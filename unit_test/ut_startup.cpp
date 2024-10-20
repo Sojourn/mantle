@@ -3,7 +3,7 @@
 #include "ut_common.h"
 
 #include <thread>
-#include <barrier>
+#include <latch>
 
 using namespace mantle;
 
@@ -12,13 +12,18 @@ TEST_CASE("Startup") {
         Domain domain;
 
         // Enough that threads will be concurrently starting and stopping.
-        std::vector<std::jthread> threads;
-        for (int i = 0; i < 10000; ++i) {
-            threads.emplace_back([&domain] {
+        std::vector<std::jthread> threads(100);
+        std::latch latch(threads.size());
+        for (std::jthread& thread : threads) {
+            thread = std::jthread([&domain, &latch] {
                 CommonObjectFinalizer finalizer;
                 Region region(domain, finalizer);
+                latch.count_down();
+
                 Ref<Object> ref = make_object();
             });
         }
+
+        latch.wait();
     }
 }

@@ -9,7 +9,8 @@ namespace mantle {
 
     MANTLE_SOURCE_INLINE
     Domain::Domain(std::optional<std::span<size_t>> thread_cpu_affinities)
-        : running_(false)
+        : parent_thread_id_(get_tid())
+        , state_(DomainState::RUNNING)
     {
         selector_.add_watch(doorbell_.file_descriptor(), &doorbell_);
         selector_.add_watch(write_barrier_manager_.file_descriptor(), &write_barrier_manager_);
@@ -41,6 +42,7 @@ namespace mantle {
 
     MANTLE_SOURCE_INLINE
     Domain::~Domain() {
+        stop();
         thread_.join();
     }
 
@@ -50,10 +52,18 @@ namespace mantle {
     }
 
     MANTLE_SOURCE_INLINE
-    void Domain::run() {
-        running_ = true;
+    void Domain::stop() {
+        std::scoped_lock lock(mutex_);
 
-        while (running_) {
+        if (state_ == DomainState::RUNNING) {
+            state_ = DomainState::STOPPING;
+            doorbell_.ring();
+        }
+    }
+
+    MANTLE_SOURCE_INLINE
+    void Domain::run() {
+        while (true) {
             constexpr bool non_blocking = false;
             for (void* user_data: selector_.poll(non_blocking)) {
                 handle_event(user_data);
@@ -66,11 +76,11 @@ namespace mantle {
                 update_controllers(census);
 
                 for (RegionId region_id = 0; size_t{region_id} < controllers_.size(); ++region_id) {
-                    Region& region = *regions_[region_id];
                     RegionController& controller = *controllers_[region_id];
+                    Endpoint& endpoint = *endpoints_[region_id];
 
                     while (std::optional<Message> message = controller.send_message()) {
-                        if (region.domain_endpoint().send_message(*message)) {
+                        if (endpoint.send_message(*message)) {
                             debug("[region_controller:{}] sent {}", region_id, to_string(message->type));
                         }
                         else {
@@ -81,6 +91,14 @@ namespace mantle {
 
                 // Update the census and break if nothing changed.
                 if (std::exchange(census, RegionControllerCensus(controllers_)) == census) {
+                    break;
+                }
+            }
+
+            {
+                std::scoped_lock lock(mutex_);
+                if (state_ == DomainState::STOPPING && census.all(RegionControllerState::SHUTDOWN)) {
+                    state_ = DomainState::STOPPED;
                     break;
                 }
             }
@@ -103,7 +121,9 @@ namespace mantle {
         else {
             Region& region = *static_cast<Region*>(user_data);
             RegionController& controller = *controllers_[region.id()];
-            for (const Message& message: region.domain_endpoint().receive_messages(non_blocking)) {
+            Endpoint& endpoint = *endpoints_[region.id()];
+
+            for (const Message& message: endpoint.receive_messages(non_blocking)) {
                 debug("[region_controller:{}] received {}", region.id(), to_string(message.type));
                 controller.receive_message(message);
             }
@@ -123,9 +143,6 @@ namespace mantle {
             else if (census.all(RegionControllerState::STOPPING)) {
                 stop_controllers(census, lock);
             }
-            else if (census.all(RegionControllerState::SHUTDOWN)) {
-                running_ = false;
-            }
         }
 
         // Synchronize at barrier phases.
@@ -136,7 +153,7 @@ namespace mantle {
 
     MANTLE_SOURCE_INLINE
     void Domain::start_controllers(const RegionControllerCensus& census, std::scoped_lock<std::mutex>&) {
-        for (RegionId region_id = controllers_.size(); region_id < regions_.size(); ++region_id) {
+        for (size_t region_id = controllers_.size(); region_id < regions_.size(); ++region_id) {
             Region& region = *regions_[region_id];
 
             // Create a controller to manage the region.
@@ -149,6 +166,7 @@ namespace mantle {
 
                 controller->start(census.max_cycle());
                 controllers_.push_back(std::move(controller));
+                endpoints_.push_back(&region.domain_endpoint());
             }
 
             // Monitor the connection associated with this region so we can wake up
