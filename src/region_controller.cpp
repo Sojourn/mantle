@@ -36,6 +36,9 @@ namespace mantle {
         : count_(0)
         , min_cycle_(std::numeric_limits<Cycle>::max())
         , max_cycle_(std::numeric_limits<Cycle>::min())
+        , state_counts_()
+        , phase_counts_()
+        , action_counts_()
     {
         for (size_t& counter: state_counts_) {
             counter = 0;
@@ -425,7 +428,13 @@ namespace mantle {
             }
 
             RegionController& controller = *controllers_[region_id];
-            controller.operation_grouper_.write(make_operation(object, type), false);
+            if (UNLIKELY(controller.state() == State::SHUTDOWN)) {
+                // The region has shut down--leak the object.
+                // TODO: Handle this case with an optional, global finalizer.
+            }
+            else {
+                controller.operation_grouper_.write(make_operation(object, type), false);
+            }
         }
 
         return objects.size();
