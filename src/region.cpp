@@ -42,7 +42,7 @@ namespace mantle {
         , cycle_(INITIAL_CYCLE)
         , depth_(0)
         , finalizer_(finalizer)
-        , ledger_(domain.write_barrier_manager())
+        , ledger_(domain.write_barrier_manager_)
     {
         // Register ourselves as the region on this thread.
         {

@@ -24,6 +24,7 @@ TEST_CASE("Startup") {
             });
         }
 
+        // Wait until all threads have been bound to the domain.
         latch.wait();
     }
 }

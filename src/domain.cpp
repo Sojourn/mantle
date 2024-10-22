@@ -10,7 +10,6 @@ namespace mantle {
     MANTLE_SOURCE_INLINE
     Domain::Domain(std::optional<std::span<size_t>> thread_cpu_affinities)
         : parent_thread_id_(get_tid())
-        , state_(DomainState::RUNNING)
     {
         selector_.add_watch(doorbell_.file_descriptor(), &doorbell_);
         selector_.add_watch(write_barrier_manager_.file_descriptor(), &write_barrier_manager_);
@@ -47,22 +46,37 @@ namespace mantle {
     }
 
     MANTLE_SOURCE_INLINE
-    WriteBarrierManager& Domain::write_barrier_manager() {
-        return write_barrier_manager_;
+    DomainState Domain::state() const {
+        std::scoped_lock lock(shared_.mutex);
+        return shared_.state;
     }
 
     MANTLE_SOURCE_INLINE
     void Domain::stop() {
-        std::scoped_lock lock(mutex_);
+        std::scoped_lock lock(shared_.mutex);
 
-        if (state_ == DomainState::RUNNING) {
-            state_ = DomainState::STOPPING;
+        if (shared_.state == DomainState::STARTING || shared_.state == DomainState::RUNNING) {
+            shared_.state = DomainState::STOPPING;
             doorbell_.ring();
         }
     }
 
     MANTLE_SOURCE_INLINE
     void Domain::run() {
+        {
+            std::scoped_lock lock(shared_.mutex);
+            if (shared_.state == DomainState::STARTING) {
+                shared_.state = DomainState::RUNNING;
+            }
+            else if (shared_.state == DomainState::STOPPING) {
+                shared_.state = DomainState::STOPPED;
+                return;
+            }
+            else {
+                abort();
+            }
+        }
+
         while (true) {
             constexpr bool non_blocking = false;
             for (void* user_data: selector_.poll(non_blocking)) {
@@ -96,9 +110,9 @@ namespace mantle {
             }
 
             {
-                std::scoped_lock lock(mutex_);
-                if (state_ == DomainState::STOPPING && census.all(RegionControllerState::SHUTDOWN)) {
-                    state_ = DomainState::STOPPED;
+                std::scoped_lock lock(shared_.mutex);
+                if (shared_.state == DomainState::STOPPING && census.all(RegionControllerState::SHUTDOWN)) {
+                    shared_.state = DomainState::STOPPED;
                     break;
                 }
             }
@@ -135,9 +149,9 @@ namespace mantle {
         // Check if there are controllers that need to be started or stopped.
         // This is safe to do while there isn't an active cycle.
         if (controllers_.empty() || census.any(RegionControllerPhase::START)) {
-            std::scoped_lock lock(mutex_);
+            std::scoped_lock lock(shared_.mutex);
 
-            if (controllers_.size() < regions_.size()) {
+            if (controllers_.size() < shared_.regions.size()) {
                 start_controllers(census, lock);
             }
             else if (census.all(RegionControllerState::STOPPING)) {
@@ -153,8 +167,8 @@ namespace mantle {
 
     MANTLE_SOURCE_INLINE
     void Domain::start_controllers(const RegionControllerCensus& census, std::scoped_lock<std::mutex>&) {
-        for (size_t region_id = controllers_.size(); region_id < regions_.size(); ++region_id) {
-            Region& region = *regions_[region_id];
+        for (size_t region_id = controllers_.size(); region_id < shared_.regions.size(); ++region_id) {
+            Region& region = *shared_.regions[region_id];
 
             // Create a controller to manage the region.
             {
@@ -194,10 +208,10 @@ namespace mantle {
 
     MANTLE_SOURCE_INLINE
     RegionId Domain::bind(Region& region) {
-        std::scoped_lock lock(mutex_);
+        std::scoped_lock lock(shared_.mutex);
 
-        const RegionId region_id = regions_.size();
-        regions_.push_back(&region);
+        const RegionId region_id = shared_.regions.size();
+        shared_.regions.push_back(&region);
         doorbell_.ring();
 
         return region_id;

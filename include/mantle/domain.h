@@ -17,6 +17,7 @@ namespace mantle {
     class Region;
 
     enum class DomainState {
+        STARTING,
         RUNNING,
         STOPPING,
         STOPPED,
@@ -34,8 +35,7 @@ namespace mantle {
         Domain& operator=(Domain&&) = delete;
         Domain& operator=(const Domain&) = delete;
 
-        [[nodiscard]]
-        WriteBarrierManager& write_barrier_manager();
+        DomainState state() const;
 
         void stop();
 
@@ -51,13 +51,18 @@ namespace mantle {
         RegionId bind(Region& region);
 
     private:
+        // These members should only be accessed while the mutex is held.
+        struct Shared {
+            mutable std::mutex   mutex;
+            DomainState          state = DomainState::STARTING;
+            std::vector<Region*> regions;
+        };
+
         std::thread            thread_;
+        Shared                 shared_;
+
         pid_t                  parent_thread_id_;
         WriteBarrierManager    write_barrier_manager_;
-
-        std::mutex             mutex_;
-        DomainState            state_;
-        std::vector<Region*>   regions_;
 
         RegionControllerGroup  controllers_;
         std::vector<Endpoint*> endpoints_;
